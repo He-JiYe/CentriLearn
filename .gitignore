@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# data files
+data/
+
+# notebook files
+notebooks/
+

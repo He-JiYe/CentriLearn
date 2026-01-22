@@ -1,0 +1,21 @@
+model:
+  type: FINDER
+  backbone:
+    type: DeepNet
+    input_dim: 10
+    hidden_dim: 128
+    num_blocks: 4
+    # Custom configuration for each block
+    block_config:
+      - norm: layer
+        dropout: 0.1
+      - norm: layer
+        dropout: 0.1
+      - norm: layer
+        dropout: 0.1
+      - norm: layer
+        dropout: 0.1
+    aggr: mean
+    graph_aggr: add
+    use_residual: true
+    output_dim: 128

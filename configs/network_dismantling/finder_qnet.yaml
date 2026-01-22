@@ -1,0 +1,12 @@
+model:
+  type: FINDER
+  backbone:
+    type: QNet
+    input_dim: 10
+    hidden_dim: 64
+    num_layers: 3
+    aggr: mean
+    graph_aggr: add
+    norm: layer
+    dropout: 0.0
+    use_residual: true
