@@ -1,15 +1,17 @@
 """
-Architecture:
-- __init__.py: Model building utilities.
-- nn/: Custom Neural network (GraphSAGE, etc.)
-- backbones/: Backbone networks (SimpleNet, DeepNet, FPNet)
-- network_dismantling/: ND-specific models (Qnet, ActorCritic)
-- utils/: Model building utilities and model registration.
+Models module for graph neural networks.
+
+This module provides a flexible, registry-based system for building
+graph neural networks and task-specific models.
 """
-from .utils.builder import build_network_dismantler
-from .utils.registry import NETWORK_DISMANTLER
+from .utils.builder import build_backbone, build_head, build_network_dismantler
+from .utils.registry import BACKBONES, HEADS, NETWORK_DISMANTLER
 
 __all__ = [
-    'build_network_dismantler', 
+    'build_backbone',
+    'build_head',
+    'build_network_dismantler',
+    'BACKBONES',
+    'HEADS',
     'NETWORK_DISMANTLER'
 ]

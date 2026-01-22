@@ -74,21 +74,19 @@ class GraphSAGE(BasicGNN):
             raise ValueError(f"Unknown graph aggregation: {self.graph_aggr}")
 
     def forward(self, x: torch.Tensor, edge_index: torch.Tensor,
-                batch: OptTensor = None, return_graph_embed: bool = False) -> Union[torch.Tensor, tuple]:
+                batch: OptTensor = None, graph_embed: torch.Tensor = None) -> Union[torch.Tensor, tuple]:
         """Forward pass with graph embedding as virtual node.
 
         Args:
             x: Node features [num_nodes, in_channels]
             edge_index: Edge indices [2, num_edges]
             batch: Batch assignment [num_nodes] 
-            return_graph_embed: Whether to return graph-level embeddings
-
+            graph_embed: Graph embeddings [num_graphs, in_channels] (Default: None)
+  
         Returns:
-            If return_graph_embed is False: node_embeddings [num_nodes, out_channels]
-            If return_graph_embed is True: (node_embeddings, graph_embeddings) [num_graphs, out_channels]
+            Tuple of (node_embeddings, graph_embeddings) [num_graphs, out_channels]
         """
         batch_size = batch.max().item() + 1 if batch is not None else 1
-        graph_embed = None
 
         for i, (conv, norm) in enumerate(zip(self.convs, self.norms)):
             # Update the graph embeddings first
@@ -128,7 +126,5 @@ class GraphSAGE(BasicGNN):
                     x = self.act(x)
                 x = self.dropout(x)
 
-        if return_graph_embed:
-            return x, graph_embed
+        return x, graph_embed
 
-        return x

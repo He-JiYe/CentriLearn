@@ -1,0 +1,26 @@
+# Q-network model with FPNet backbone (multi-scale features)
+model:
+  type: Qnet
+
+  # Backbone configuration
+  backbone_cfg:
+    type: FPNet
+    input_dim: 10
+    hidden_dims: [64, 128, 256]
+
+    # Different depths for each pyramid level
+    num_layers_list: [1, 2, 3]
+
+    aggr: mean
+    graph_aggr: add
+    norm: layer
+    dropout: 0.1
+    fusion_mode: attention
+    output_dim: 256
+
+  # Q-head configuration
+  q_head_cfg:
+    type: QHead
+    in_channels: 256
+    hidden_layers: [256, 128, 1]
+    activation: leaky_relu

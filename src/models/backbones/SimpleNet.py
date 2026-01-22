@@ -11,6 +11,8 @@ from ..utils.registry import BACKBONES
 class SimpleNet(nn.Module):
     """Simple network backbone for graph reinforcement learning.
 
+    This backbone uses a single GraphSAGE encoder for graph feature extraction.
+
     Args:
         input_dim: Input feature dimension.
         hidden_dim: Hidden feature dimension.
@@ -54,23 +56,58 @@ class SimpleNet(nn.Module):
             **kwargs
         )
 
-    def forward(self, x, edge_index, batch, return_graph_embed=False):
-        """Forward pass.
+    def forward(self, x, edge_index, batch, **kwargs):
+        """Forward pass (legacy compatibility).
 
         Args:
             x: Node features [num_nodes, input_dim]
             edge_index: Edge indices [2, num_edges]
             batch: Batch assignment [num_nodes]
-            return_graph_embed: Whether to return graph embedding
+            **kwargs: Other optional keys
 
         Returns:
-            If return_graph_embed is False: node_embeddings [num_nodes, out_channels]
-            If return_graph_embed is True: (node_embeddings, graph_embeddings) [num_graphs, out_channels]
+            Node features [num_nodes, output_dim]
+            Graph embedding [num_graphs, output_dim]
         """
-        # Node embedding
+        # Node to embedding
         x = F.relu(self.fc(x))
 
         # Graph encoding
-        embed = self.conv(x, edge_index, batch, return_graph_embed)
+        node_embed, graph_embed = self.conv(x, edge_index, batch)
 
-        return embed
+        return node_embed, graph_embed
+
+    def forward_info(self, info: dict):
+        """Forward pass using info dictionary.
+
+        Args:
+            info: Dictionary containing:
+                - x: Node features [num_nodes, input_dim]
+                - edge_index: Edge indices [2, num_edges]
+                - batch: Batch assignment [num_nodes]
+
+        Returns:
+            Dictionary containing:
+                - node_embed: Node features [num_nodes, output_dim]
+                - graph_embed: Graph embedding [num_graphs, output_dim]
+        """
+        x = info['x']
+        edge_index = info['edge_index']
+        batch = info['batch']
+
+        # Node to embedding
+        x = F.relu(self.fc(x))
+
+        # Graph encoding
+        node_embed, graph_embed = self.conv(x, edge_index, batch)
+
+        # Update info
+        info['node_embed'] = node_embed
+        info['graph_embed'] = graph_embed
+
+        return info
+
+    @property
+    def out_channels(self):
+        """Output channels dimension."""
+        return self.output_dim if self.output_dim else self.hidden_dim

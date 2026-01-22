@@ -98,4 +98,5 @@ class Registry:
 
 # Create model registry
 BACKBONES = Registry('backbones')
+HEADS = Registry('heads')
 NETWORK_DISMANTLER = Registry('network_dismantler')

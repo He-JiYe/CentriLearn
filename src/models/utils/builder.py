@@ -3,7 +3,7 @@ Builder functions for models.
 """
 import torch.nn as nn
 from typing import Union, List, Dict
-from .registry import BACKBONES, NETWORK_DISMANTLER
+from .registry import BACKBONES, HEADS, NETWORK_DISMANTLER
 
 
 def build_backbone(cfg: Union[Dict, List], default_args: Dict = None):
@@ -13,6 +13,14 @@ def build_backbone(cfg: Union[Dict, List], default_args: Dict = None):
             build_from_cfg(_cfg, BACKBONES, default_args) for _cfg in cfg
         ])
     return build_from_cfg(cfg, BACKBONES, default_args)
+
+def build_head(cfg: Union[Dict, List], default_args: Dict = None):
+    """Build head from config."""
+    if isinstance(cfg, list):
+        return nn.Sequential(*[
+            build_from_cfg(_cfg, HEADS, default_args) for _cfg in cfg
+        ])
+    return build_from_cfg(cfg, HEADS, default_args)
 
 def build_network_dismantler(cfg: Union[Dict, List], default_args: Dict = None):
     """Build network_dismantler from config."""

@@ -1,0 +1,21 @@
+# Q-network model with SimpleNet backbone
+model:
+  type: Qnet
+
+  # Backbone configuration
+  backbone_cfg:
+    type: SimpleNet
+    input_dim: 10
+    hidden_dim: 64
+    num_layers: 3
+    aggr: mean
+    graph_aggr: add
+    norm: layer
+    dropout: 0.0
+
+  # Q-head configuration
+  q_head_cfg:
+    type: QHead
+    in_channels: 64
+    hidden_layers: [64, 64, 1]
+    activation: leaky_relu
