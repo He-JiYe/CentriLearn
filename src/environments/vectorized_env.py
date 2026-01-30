@@ -3,7 +3,7 @@
 支持并行运行多个环境实例，提高采样效率
 """
 from typing import List, Tuple, Dict, Any, Optional, Type
-from base import BaseEnv
+from .base import BaseEnv
 
 
 class VectorizedEnv:

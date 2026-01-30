@@ -4,8 +4,8 @@ Logit head for policy/action probability.
 import torch
 import torch.nn as nn
 from .mlp_head import MLPHead
-from ..utils.registry import HEADS
-
+from src.utils.registry import HEADS
+from typing import Dict, Any
 
 @HEADS.register_module()
 class LogitHead(nn.Module):
@@ -22,8 +22,7 @@ class LogitHead(nn.Module):
                  in_channels: int,
                  hidden_layers: list = None,
                  activation: str = 'leaky_relu',
-                 dropout: float = 0.0,
-                 **kwargs):
+                 dropout: float = 0.0):
         super().__init__()
 
         if hidden_layers is None:
@@ -36,22 +35,28 @@ class LogitHead(nn.Module):
             dropout=dropout
         )
 
-    def forward(self, node_embed, batch, graph_embed=None, **kwargs):
+    def forward(self, info: Dict[str, Any]) -> Dict[str, Any]:
         """Forward pass (legacy compatibility).
 
         Args:
             node_embed: Node features [num_nodes, in_channels]
             batch: Batch assignment [num_nodes]
             graph_embed: Graph embeddings [batch_size, in_channels]
-            **kwargs: Other optional keys
-            
+
         Returns:
             Action logits [num_nodes, num_actions]
         """
+        assert info.get('node_embed') is not None, "node_embed is required"
+        assert info.get('batch') is not None, "batch is required"
+        assert info.get('graph_embed') is not None, "graph_embed is required"
+
+        node_embed, batch, graph_embed = info.get('node_embed'), info.get('batch'), info.get('graph_embed')
+
         if graph_embed is not None:
             node_embed = torch.cat([node_embed, graph_embed[batch]], dim=1)
 
-        return self.mlp(node_embed)
+        info['logit'] = self.mlp(node_embed)
+        return info
 
     def forward_info(self, info: dict):
         """Forward pass using info dictionary.
@@ -76,7 +81,4 @@ class LogitHead(nn.Module):
         info['logit'] = logit
         return info
 
-    @property
-    def out_channels(self):
-        """Output channels dimension."""
-        return self.mlp.out_channels
+  

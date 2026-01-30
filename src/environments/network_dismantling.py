@@ -5,14 +5,15 @@
 import networkx as nx
 import torch
 from typing import List, Tuple, Dict, Any
-from base import BaseEnv, subgraph
+from .base import BaseEnv
+from torch_geometric.utils import subgraph
 
 
 class NetworkDismantlingEnv(BaseEnv):
     """网络瓦解环境
-    
+
     目标：通过移除节点来破坏网络的连通性，使最大连通分量最小化。
-    
+
     Attributes:
         remove_nodes: 已移除的节点列表
         lcc_size: 最大连通分量大小历史记录
@@ -48,13 +49,13 @@ class NetworkDismantlingEnv(BaseEnv):
         
         # 移除节点
         self.remove_node(action, mapping)
-        
+
         if self.value_type == 'auc':
-            reward = -self.lcc_size() / (self.num_nodes * self.num_nodes)
+            reward = -self.lcc() / (self.num_nodes * self.num_nodes)
         elif self.value_type == 'ar':
             reward = -1 / self.num_nodes
-              
-        done = self.is_empty() or self._lcc_size() <= 1
+
+        done = self.is_empty() or self.lcc() <= 1
         info = {}
         
         return reward, done, info
@@ -63,7 +64,7 @@ class NetworkDismantlingEnv(BaseEnv):
         info = super().get_state()
         return info
 
-    def lcc_size(self) -> int:
+    def lcc(self) -> int:
         """返回剩余图的最大连通分量"""
         mapping = self.node_mask.nonzero(as_tuple=False).view(-1)
         num_nodes = mapping.shape[0]

@@ -1,15 +1,18 @@
 """
-Registry for model.
+通用注册器
+支持模块的注册和动态构建
 """
 import inspect
 from typing import Type, Dict
 
 
 class Registry:
-    """A registry to map strings to classes.
+    """注册器类
+
+    将字符串映射到类，支持通过配置动态构建对象。
 
     Args:
-        name (str): Registry name.
+        name (str): 注册器名称
     """
 
     def __init__(self, name: str):
@@ -31,26 +34,26 @@ class Registry:
         return self._module_dict
 
     def get(self, key: str) -> Type:
-        """Get the registry record.
+        """获取注册的类
 
         Args:
-            key (str): The class name in string format.
+            key (str): 类名字符串
 
         Returns:
-            Type: The corresponding class.
+            Type: 对应的类
         """
         if key not in self._module_dict:
             raise KeyError(f'{key} is not in the {self._name} registry')
         return self._module_dict[key]
 
     def _register_module(self, module_class: Type, module_name: str = None,
-                          force: bool = False) -> None:
-        """Register a module.
+                        force: bool = False) -> None:
+        """注册模块
 
         Args:
-            module_class: Module class to be registered.
-            module_name: Module name to be registered. If not specified, the class name will be used.
-            force: Whether to override an existing class with the same name.
+            module_class: 要注册的模块类
+            module_name: 注册的模块名称，如果未指定则使用类名
+            force: 是否覆盖已存在的同名类
         """
         if not inspect.isclass(module_class):
             raise TypeError(f'module must be a class, but got {type(module_class)}')
@@ -64,12 +67,11 @@ class Registry:
         self._module_dict[module_name] = module_class
 
     def register_module(self, name: str = None, force: bool = False, module: Type = None):
-        """Register a module.
+        """注册模块
 
-        A record will be added to `self._module_dict`, the key is the class name
-        or the specified name, and the value is the class itself.
+        在 `self._module_dict` 中添加记录，key 是类名或指定的名称，value 是类本身。
 
-        It can be used as a decorator or a normal function.
+        可以用作装饰器或普通函数。
 
         Example:
             >>> backbones = Registry('backbone')
@@ -96,7 +98,7 @@ class Registry:
         return _register
 
 
-# Create model registry
+# 创建模型注册器
 BACKBONES = Registry('backbones')
 HEADS = Registry('heads')
 NETWORK_DISMANTLER = Registry('network_dismantler')

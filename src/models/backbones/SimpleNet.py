@@ -3,9 +3,9 @@ Simple network backbone for graph reinforcement learning.
 """
 import torch.nn as nn
 import torch.nn.functional as F
-from ..nn.GraphSAGE import GraphSAGE
-from ..utils.registry import BACKBONES
-
+from src.models.nn.GraphSAGE import GraphSAGE
+from src.utils.registry import BACKBONES
+from typing import Dict, Any
 
 @BACKBONES.register_module()
 class SimpleNet(nn.Module):
@@ -14,10 +14,10 @@ class SimpleNet(nn.Module):
     This backbone uses a single GraphSAGE encoder for graph feature extraction.
 
     Args:
-        input_dim: Input feature dimension.
-        hidden_dim: Hidden feature dimension.
+        in_channels: Input feature dimension.
+        hidden_channels: Hidden feature dimension.
         num_layers: Number of GraphSAGE layers.
-        output_dim: Output feature dimension (Default: hidden_dim).
+        output_dim: Output feature dimension (Default: hidden_channels).
         aggr: GraphSAGE aggregation method ('mean', 'max', 'sum').
         graph_aggr: Graph pooling method ('add', 'mean', 'max').
         norm: Normalization type ('layer' or None).
@@ -25,8 +25,8 @@ class SimpleNet(nn.Module):
     """
 
     def __init__(self,
-                 input_dim: int,
-                 hidden_dim: int = 64,
+                 in_channels: int,
+                 hidden_channels: int = 64,
                  num_layers: int = 3,
                  output_dim: int = None,
                  aggr: str = 'mean',
@@ -36,19 +36,19 @@ class SimpleNet(nn.Module):
                  **kwargs):
         super().__init__()
 
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim if output_dim else hidden_dim
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self._output_dim = output_dim if output_dim else hidden_channels
 
         # Embedding layer
-        self.fc = nn.Linear(input_dim, hidden_dim)
+        self.fc = nn.Linear(in_channels, hidden_channels)
 
         # GraphSAGE encoder
         self.conv = GraphSAGE(
-            in_channels=hidden_dim,
-            hidden_channels=hidden_dim,
+            in_channels=hidden_channels,
+            hidden_channels=hidden_channels,
             num_layers=num_layers,
-            output_channels=output_dim,
+            output_dim=output_dim,
             aggr=aggr,
             graph_aggr=graph_aggr,
             norm=norm,
@@ -56,58 +56,29 @@ class SimpleNet(nn.Module):
             **kwargs
         )
 
-    def forward(self, x, edge_index, batch, **kwargs):
+    def forward(self, info: Dict[str, Any]) -> Dict[str, Any]:
         """Forward pass (legacy compatibility).
 
         Args:
             x: Node features [num_nodes, input_dim]
             edge_index: Edge indices [2, num_edges]
             batch: Batch assignment [num_nodes]
-            **kwargs: Other optional keys
 
         Returns:
-            Node features [num_nodes, output_dim]
-            Graph embedding [num_graphs, output_dim]
+            node_embed: Node embeddings [num_nodes, hidden_channels]
+            graph_embed: Graph embeddings [num_graphs, hidden_channels]
         """
-        # Node to embedding
+        assert info.get('x') is not None, "x are required"
+        assert info.get('edge_index') is not None, "Edge indices are required"
+        assert info.get('batch') is not None, "Batch assignment is required"
+
+        x, edge_index, batch = info['x'], info['edge_index'], info['batch']
+
         x = F.relu(self.fc(x))
-
-        # Graph encoding
-        node_embed, graph_embed = self.conv(x, edge_index, batch)
-
-        return node_embed, graph_embed
-
-    def forward_info(self, info: dict):
-        """Forward pass using info dictionary.
-
-        Args:
-            info: Dictionary containing:
-                - x: Node features [num_nodes, input_dim]
-                - edge_index: Edge indices [2, num_edges]
-                - batch: Batch assignment [num_nodes]
-
-        Returns:
-            Dictionary containing:
-                - node_embed: Node features [num_nodes, output_dim]
-                - graph_embed: Graph embedding [num_graphs, output_dim]
-        """
-        x = info['x']
-        edge_index = info['edge_index']
-        batch = info['batch']
-
-        # Node to embedding
-        x = F.relu(self.fc(x))
-
-        # Graph encoding
-        node_embed, graph_embed = self.conv(x, edge_index, batch)
-
-        # Update info
-        info['node_embed'] = node_embed
-        info['graph_embed'] = graph_embed
-
+        info['node_embed'], info['graph_embed'] = self.conv(x, edge_index, batch)
         return info
-
+    
     @property
-    def out_channels(self):
+    def output_dim(self):
         """Output channels dimension."""
-        return self.output_dim if self.output_dim else self.hidden_dim
+        return self._output_dim

@@ -4,8 +4,8 @@ Q-value head for Q-learning.
 import torch
 import torch.nn as nn
 from .mlp_head import MLPHead
-from ..utils.registry import HEADS
-
+from src.utils.registry import HEADS
+from typing import Dict, Any
 
 @HEADS.register_module()
 class QHead(nn.Module):
@@ -22,8 +22,7 @@ class QHead(nn.Module):
                  in_channels: int,
                  hidden_layers: list = None,
                  activation: str = 'leaky_relu',
-                 dropout: float = 0.0,
-                 **kwargs):
+                 dropout: float = 0.0):
         super().__init__()
 
         if hidden_layers is None:
@@ -36,47 +35,26 @@ class QHead(nn.Module):
             dropout=dropout
         )
 
-    def forward(self, node_embed, batch, graph_embed=None, **kwargs):
+    def forward(self, info: Dict[str, Any]) -> Dict[str, Any]:
         """Forward pass (legacy compatibility).
 
         Args:
             node_embed: Node features [num_nodes, in_channels]
             batch: Batch assignment [num_nodes]
             graph_embed: Graph embeddings [batch_size, in_channels]
-            **kwargs: Other optional keys
-            
+
         Returns:
             Q-values [num_nodes, 1]
         """
+        assert info.get('node_embed') is not None, "node_embed is required"
+        assert info.get('batch') is not None, "batch is required"
+        assert info.get('graph_embed') is not None, "graph_embed is required"
+
+        node_embed, batch, graph_embed = info.get('node_embed'), info.get('batch'), info.get('graph_embed')
+
         if graph_embed is not None:
             node_embed = torch.cat([node_embed, graph_embed[batch]], dim=1)
 
-        return self.mlp(node_embed)
-
-    def forward_info(self, info: dict):
-        """Forward pass using info dictionary.
-
-        Args:
-            info: Dictionary containing:
-                - node_embed: Node features [num_nodes, in_channels]
-                - graph_embed: Graph embeddings [batch_size, in_channels] (optional)
-                - batch: Batch assignment [num_nodes]
-                - Other optional keys
-
-        Returns:
-            Updated info dictionary with q_values
-        """
-        x = info['node_embed']
-        batch = info.get('batch')
-
-        if 'graph_embed' in info and info['graph_embed'] is not None:
-            x = torch.cat([x, info['graph_embed'][batch]], dim=1)
-
-        q_values = self.mlp(x)
-        info['q_values'] = q_values
+        info['q_values'] = self.mlp(node_embed)
         return info
 
-    @property
-    def out_channels(self):
-        """Output channels dimension."""
-        return self.mlp.out_channels

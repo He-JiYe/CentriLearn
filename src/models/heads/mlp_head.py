@@ -1,8 +1,8 @@
 """
 MLP head for various prediction tasks.
 """
-import torch.nn as nn
-from ..utils.registry import HEADS
+from torch import nn, Tensor
+from src.utils.registry import HEADS
 
 
 @HEADS.register_module()
@@ -22,8 +22,7 @@ class MLPHead(nn.Module):
                  hidden_layers: list = None,
                  activation: str = 'leaky_relu',
                  dropout: float = 0.0,
-                 norm: str = 'none',
-                 **kwargs):
+                 norm: str = 'none'):
         super().__init__()
 
         if hidden_layers is None:
@@ -65,35 +64,13 @@ class MLPHead(nn.Module):
 
         self.mlp = nn.Sequential(*layers)
 
-    def forward(self, x, **kwargs):
+    def forward(self, x: Tensor) -> Tensor:
         """Forward pass (legacy compatibility).
 
         Args:
             x: Input features [..., in_channels]
-            **kwargs: Other optional keys
-            
+
         Returns:
             Output features [..., output_dim]
         """
         return self.mlp(x)
-
-    def forward_info(self, info: dict):
-        """Forward pass using info dictionary.
-
-        Args:
-            info: Dictionary containing:
-                - x: Input features [..., in_channels]
-                - Optional keys based on specific head type
-
-        Returns:
-            Updated info dictionary with predictions
-        """
-        x = info.get('x', info.get('node_embed'))
-        output = self.mlp(x)
-        info['output'] = output
-        return info
-
-    @property
-    def out_channels(self):
-        """Output channels dimension."""
-        return self.mlp[-1].out_features

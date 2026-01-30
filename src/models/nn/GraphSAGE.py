@@ -20,7 +20,7 @@ class GraphSAGE(BasicGNN):
         in_channels: Input feature dimension
         hidden_channels: Hidden feature dimension
         num_layers: Number of GraphSAGE layers
-        output_channels: Output feature dimension (default: hidden_channels)
+        output_dim: Output feature dimension (default: hidden_channels)
         aggr: Node aggregation method ('mean', 'max', 'sum')
         graph_aggr: Graph pooling method ('add', 'mean', 'max')
         norm: Normalization method ('layer' for LayerNorm, None for no normalization)
@@ -33,25 +33,28 @@ class GraphSAGE(BasicGNN):
     supports_norm_batch: Final[bool]
 
     def __init__(self, in_channels: int, hidden_channels: int, num_layers: int,
-                 output_channels: int = None, aggr: str = 'mean',
+                 output_dim: int = None, aggr: str = 'mean',
                  graph_aggr: str = 'add', norm: str = None,
                  dropout: float = 0.0, **kwargs):
         self.graph_aggr = graph_aggr
         self.aggr = aggr
+
+        kwargs.pop('output_dim', None)
 
         # Initialize BasicGNN with norm option
         super().__init__(
             in_channels=in_channels,
             hidden_channels=hidden_channels,
             num_layers=num_layers,
-            out_channels=output_channels,
+            output_dim=output_dim,
             dropout=dropout,
             norm=norm,
             **kwargs
         )
-        
+
     def init_conv(self, in_channels: int, out_channels: int, **kwargs):
         """Initialize SAGEConv layer."""
+        kwargs.pop('output_dim', None)
         return SAGEConv(in_channels, out_channels, aggr=self.aggr, **kwargs)
 
     def _pool_graph(self, x: torch.Tensor, batch: torch.Tensor) -> torch.Tensor:
@@ -80,11 +83,11 @@ class GraphSAGE(BasicGNN):
         Args:
             x: Node features [num_nodes, in_channels]
             edge_index: Edge indices [2, num_edges]
-            batch: Batch assignment [num_nodes] 
+            batch: Batch assignment [num_nodes]
             graph_embed: Graph embeddings [num_graphs, in_channels] (Default: None)
-  
+
         Returns:
-            Tuple of (node_embeddings, graph_embeddings) [num_graphs, out_channels]
+            Tuple of (node_embeddings, graph_embeddings) [num_graphs, output_dim]
         """
         batch_size = batch.max().item() + 1 if batch is not None else 1
 

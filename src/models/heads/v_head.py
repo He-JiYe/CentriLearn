@@ -1,10 +1,10 @@
 """
 Value head for critic/advantage estimation.
 """
-import torch.nn as nn
+from torch import nn, Tensor
 from .mlp_head import MLPHead
-from ..utils.registry import HEADS
-
+from src.utils.registry import HEADS
+from typing import Dict, Any
 
 @HEADS.register_module()
 class VHead(nn.Module):
@@ -21,8 +21,7 @@ class VHead(nn.Module):
                  in_channels: int,
                  hidden_layers: list = None,
                  activation: str = 'leaky_relu',
-                 dropout: float = 0.0,
-                 **kwargs):
+                 dropout: float = 0.0):
         super().__init__()
 
         if hidden_layers is None:
@@ -35,48 +34,18 @@ class VHead(nn.Module):
             dropout=dropout
         )
 
-    def forward(self, graph_embed, batch=None, **kwargs):
+    def forward(self, info: Dict[str, Any]) -> Dict[str, Any]:
         """Forward pass (legacy compatibility).
 
         Args:
             graph_embed: graph features [num_graphs, in_channels]
             batch: batch assignment [num_nodes] (Default: None)
-            **kwargs: Other optional keys
-            
-        Returns:
-            If batch is None, return value estimation for each graph.
-            If batch is not None, return value estimation for each node.
-        """
-        if batch is None:
-            return self.mlp(graph_embed)
-        else:
-            return self.mlp(graph_embed[batch])
-
-    def forward_info(self, info: dict):
-        """Forward pass using info dictionary.
-
-        Args:
-            info: Dictionary containing:
-                - node_embed: Node features [num_nodes, in_channels]
-                - graph_embed: Graph embeddings [num_graphs, in_channels]
-                - batch: Batch assignment [num_nodes]
-                - Other optional keys
 
         Returns:
-            Updated info dictionary with value
+            v_values estimation for each node in graph [num_nodes, 1].
         """
-        graph_embed = info.get('graph_embed')
-        batch = info.get('batch')
-
-        if batch is None:
-            value = self.mlp(graph_embed)
-        else:
-            value = self.mlp(graph_embed[batch])
-
-        info['value'] = value
+        assert info.get('graph_embed') is not None, "graph_embed is required"
+        graph_embed, batch = info.get('graph_embed'), info.get('batch')
+        info['v_values'] = self.mlp(graph_embed)[batch]
+        
         return info
-
-    @property
-    def out_channels(self):
-        """Output channels dimension."""
-        return self.mlp.out_channels

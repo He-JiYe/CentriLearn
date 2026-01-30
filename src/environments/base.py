@@ -29,7 +29,6 @@ class BaseEnv(ABC):
             is_undirected: 是否将图转换为无向图
         """
         self.device = device
-
         self.reset(graph, is_undirected)
 
     def reset(self, graph: Optional[nx.Graph] = None, is_undirected: bool = True) -> Dict[str, Any]:
@@ -112,7 +111,7 @@ class BaseEnv(ABC):
             x = torch.stack([deg, deg], dim=1, device=self.device)
         elif node_features == 'combin':
             deg = degree(edge_index[0], num_nodes) / num_nodes
-            x = torch.cat([torch.ones(num_nodes, 1), deg.unsqueeze(-1)], dim=1, device=self.device)
+            x = torch.cat([torch.ones(num_nodes, 1, device=self.device), deg.unsqueeze(-1)], dim=1)
         else:
             raise ValueError(f"Unknown node_features: {node_features}")
         

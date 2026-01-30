@@ -1,10 +1,12 @@
 """
 Deep network backbone with residual connections for graph reinforcement learning.
 """
+import torch
 import torch.nn as nn
-from ..nn.GraphSAGE import GraphSAGE
-from ..utils.registry import BACKBONES
-
+from src.models.nn.GraphSAGE import GraphSAGE
+from src.utils.registry import BACKBONES
+from typing import Dict, Any, Union
+from torch_geometric.typing import OptTensor
 
 class GraphSAGEBlock(nn.Module):
     """A single GraphSAGE block with optional residual connection.
@@ -40,7 +42,7 @@ class GraphSAGEBlock(nn.Module):
             in_channels=in_channels,
             hidden_channels=out_channels,
             num_layers=1,
-            output_channels=out_channels,
+            output_dim=out_channels,
             aggr=aggr,
             graph_aggr=graph_aggr,
             norm=norm,
@@ -64,32 +66,39 @@ class GraphSAGEBlock(nn.Module):
         else:
             self.proj = None
 
-    def forward(self, x, edge_index, batch, graph_embed=None):
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor,
+                batch: OptTensor = None, graph_embed: torch.Tensor = None) -> Union[torch.Tensor, tuple]:
         """Forward pass.
 
         Args:
-            x: Node features [num_nodes, in_channels]
+            x: Node features [num_nodes, input_dim]
             edge_index: Edge indices [2, num_edges]
             batch: Batch assignment [num_nodes]
-            graph_embed: Graph embedding [num_graphs, in_channels] (Default: None)
+            graph_embed: Graph embedding [num_graphs, input_dim] (Default: None)
 
         Returns:
-            Updated node features and graph embedding [num_nodes, out_channels]
+            Updated node features and graph embedding [num_nodes, output_dim]
         """
         node_identity, graph_identity = x, graph_embed
 
         # Graph convolution
-        node_out, graph_out = self.conv(x, edge_index, batch, graph_embed, return_graph_embed=True)
+        node_out, graph_out = self.conv(x, edge_index, batch, graph_embed)
 
         # Residual connection
         if self.use_residual:
             if not self.channel_match:
-                node_identity, graph_identity = self.proj(node_identity), self.proj(graph_identity)
-            node_out, graph_out = node_out + node_identity, graph_out + graph_identity
+                node_identity = self.proj(node_identity)
+                if graph_identity is not None:
+                    graph_identity = self.proj(graph_identity)
+            node_out = node_out + node_identity
+            if graph_identity is not None:
+                graph_out = graph_out + graph_identity
 
         # Normalization and activation
-        node_out, graph_out = self.norm(node_out), self.norm(graph_out)
-        node_out, graph_out = self.act(node_out), self.norm(graph_out)
+        node_out = self.norm(node_out)
+        graph_out = self.norm(graph_out)
+        node_out = self.act(node_out)
+        graph_out = self.act(graph_out)
 
         return node_out, graph_out
 
@@ -116,8 +125,8 @@ class DeepNet(nn.Module):
     """
 
     def __init__(self,
-                 input_dim: int,
-                 hidden_dim: int = 64,
+                 in_channels: int,
+                 hidden_channels: int = 64,
                  num_blocks: int = 3,
                  block_config: dict = None,
                  aggr: str = 'mean',
@@ -128,17 +137,17 @@ class DeepNet(nn.Module):
                  output_dim: int = None):
         super().__init__()
 
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim if output_dim else hidden_dim
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self._output_dim = output_dim if output_dim else hidden_channels
         self.use_residual = use_residual
 
         # Node to embedding
-        self.fc = nn.Linear(input_dim, hidden_dim),
+        self.fc = nn.Linear(in_channels, hidden_channels)
 
         # Build blocks
         self.blocks = self._make_blocks(
-            hidden_dim=hidden_dim,
+            hidden_channels=hidden_channels,
             num_blocks=num_blocks,
             block_config=block_config,
             aggr=aggr,
@@ -149,15 +158,15 @@ class DeepNet(nn.Module):
         )
 
         # Output projection (optional)
-        if self.output_dim != hidden_dim:
+        if self._output_dim != hidden_channels:
             self.head = nn.Sequential(
-                nn.Linear(hidden_dim, self.output_dim),
-                nn.LayerNorm(self.output_dim)
+                nn.Linear(hidden_channels, self._output_dim),
+                nn.LayerNorm(self._output_dim)
             )
         else:
             self.head = None
 
-    def _make_blocks(self, hidden_dim, num_blocks, block_config,
+    def _make_blocks(self, hidden_channels, num_blocks, block_config,
                      aggr, graph_aggr, norm, dropout, use_residual):
         """Build sequence of GraphSAGE blocks."""
         blocks = nn.ModuleList()
@@ -170,8 +179,8 @@ class DeepNet(nn.Module):
             for _ in range(num_blocks):
                 blocks.append(
                     GraphSAGEBlock(
-                        in_channels=hidden_dim,
-                        out_channels=hidden_dim,
+                        in_channels=hidden_channels,
+                        out_channels=hidden_channels,
                         aggr=aggr,
                         graph_aggr=graph_aggr,
                         norm=norm,
@@ -184,8 +193,8 @@ class DeepNet(nn.Module):
             # Different configuration for each block
             for cfg in block_config:
                 block_kwargs = {
-                    'in_channels': hidden_dim,
-                    'out_channels': hidden_dim,
+                    'in_channels': hidden_channels,
+                    'out_channels': hidden_channels,
                     'aggr': aggr,
                     'graph_aggr': graph_aggr,
                     'norm': norm,
@@ -199,21 +208,27 @@ class DeepNet(nn.Module):
 
         return blocks
 
-    def forward(self, x, edge_index, batch, **kwargs):
+    def forward(self, info: Dict[str, Any]) -> Dict[str, Any]:
         """Forward pass (legacy compatibility).
 
         Args:
             x: Node features [num_nodes, input_dim]
             edge_index: Edge indices [2, num_edges]
             batch: Batch assignment [num_nodes]
-            **kwargs: optional arguments for GraphSAGE.
             
         Returns:
-            Node features [num_nodes, output_dim]
-            Graph embedding [num_graphs, output_dim]
+            node_embed: Node embeddings [num_nodes, hidden_channels]
+            graph_embed: Graph embeddings [num_graphs, hidden_channels]
         """
+        assert info.get('x') is not None, "Input node features are required"
+        assert info.get('edge_index') is not None, "Input edge indices are required"
+        assert info.get('batch') is not None, "Input batch assignment is required"
+
+        x, edge_index, batch = info['x'], info['edge_index'], info['batch']
+
         # Initial projection
-        node_embed, graph_embed = self.fc(x), None
+        node_embed = self.fc(x)
+        graph_embed = None  # Initialize as None, will be created by first block
 
         # Residual blocks
         for block in self.blocks:
@@ -223,44 +238,11 @@ class DeepNet(nn.Module):
         if self.head is not None:
             node_embed, graph_embed = self.head(node_embed), graph_embed
 
-        return node_embed, graph_embed
-
-    def forward_info(self, info: dict):
-        """Forward pass using info dictionary.
-
-        Args:
-            info: Dictionary containing:
-                - x: Node features [num_nodes, input_dim]
-                - edge_index: Edge indices [2, num_edges]
-                - batch: Batch assignment [num_nodes]
-
-        Returns:
-            Dictionary containing:
-                - node_embed: Node features [num_nodes, output_dim]
-                - graph_embed: Graph embedding [num_graphs, output_dim]
-        """
-        x = info['x']
-        edge_index = info['edge_index']
-        batch = info['batch']
-
-        # Initial projection
-        node_embed, graph_embed = self.fc(x), None
-
-        # Residual blocks
-        for block in self.blocks:
-            node_embed, graph_embed = block(node_embed, edge_index, batch, graph_embed)
-
-        # Optional output projection
-        if self.head is not None:
-            node_embed, graph_embed = self.head(node_embed), graph_embed
-
-        # Update info
-        info['node_embed'] = node_embed
-        info['graph_embed'] = graph_embed
+        info['node_embed'], info['graph_embed'] = node_embed, graph_embed
 
         return info
 
     @property
-    def out_channels(self):
+    def output_dim(self):
         """Output channels dimension."""
-        return self.output_dim
+        return self._output_dim
