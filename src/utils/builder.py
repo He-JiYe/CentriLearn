@@ -5,8 +5,8 @@
 import torch
 from torch import nn
 import inspect
-from typing import Dict, Any, Optional, Union, List
-from .registry import BACKBONES, HEADS, NETWORK_DISMANTLER
+from typing import Dict, Any, Optional, Union, List, Tuple
+from .registry import BACKBONES, HEADS, NETWORK_DISMANTLER, ENVIRONMENTS, ALGORITHMS
 from .buffer import ReplayBuffer, RolloutBuffer
 
 
@@ -89,9 +89,9 @@ def build_optimizer(model: torch.nn.Module, cfg: Dict[str, Any]) -> torch.optim.
     optimizer_type = cfg.get('type', 'Adam')
     lr = cfg.get('lr', 1e-4)
     weight_decay = cfg.get('weight_decay', 0)
-    
-    # 移除 type 键和其他非优化器参数
-    params = {k: v for k, v in cfg.items() if k not in ['type']}
+
+    # 移除 type, lr, weight_decay 键
+    params = {k: v for k, v in cfg.items() if k not in ['type', 'lr', 'weight_decay']}
     
     if optimizer_type == 'Adam':
         return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay, **params)
@@ -418,3 +418,47 @@ def build_network_dismantler(cfg: Union[Dict, List], default_args: Dict = None):
             build_from_cfg(_cfg, NETWORK_DISMANTLER, default_args) for _cfg in cfg
         ])
     return build_from_cfg(cfg, NETWORK_DISMANTLER, default_args)
+
+
+def build_environment(cfg: Dict, default_args: Dict = None):
+    """从配置构建环境
+
+    Args:
+        cfg: 环境配置，可以是字典或字典列表
+        default_args: 默认参数
+
+    Returns:
+        构建的环境实例
+    """
+    env_class = cfg.get('type', 'NetworkDismantlingEnv')
+    env_class = ENVIRONMENTS.get(env_class) if isinstance(env_class, str) else env_class
+    
+    # 检查是否为向量化环境配置
+    if cfg.get('graph_list', []):
+        from ..environments import VectorizedEnv
+        graph_list = cfg.get('graph_list', [])
+        common_kwargs = cfg.get('common_kwargs', {})
+
+        return VectorizedEnv.from_graph_list(env_class, graph_list, common_kwargs)
+    
+    if cfg.get('env_kwargs_list', []):
+        from ..environments import VectorizedEnv
+        env_kwargs_list = cfg.get('env_kwargs_list', [])
+        return VectorizedEnv(env_class, env_kwargs_list)
+
+    return build_from_cfg(cfg, ENVIRONMENTS, default_args)
+
+def build_algorithm(cfg: Union[Dict, List], default_args: Dict = None):
+    """从配置构建算法
+
+    Args:
+        cfg: 算法配置，可以是字典或字典列表
+        default_args: 默认参数
+
+    Returns:
+        构建的算法实例
+    """
+    if isinstance(cfg, list):
+        return [build_from_cfg(_cfg, ALGORITHMS, default_args) for _cfg in cfg]
+    return build_from_cfg(cfg, ALGORITHMS, default_args)
+

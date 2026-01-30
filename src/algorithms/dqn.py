@@ -35,11 +35,11 @@ class DQN(BaseAlgorithm):
                  device: str = 'cpu'):
         """初始化 DQN 算法"""
         # 超参数
-        self.gamma = algo_cfg.get('gamma', 0.99),
-        self.epsilon_start = algo_cfg.get('epsilon_start', 1.0),
-        self.epsilon_end = algo_cfg.get('epsilon_end', 0.01),
-        self.epsilon_decay = algo_cfg.get('epsilon_decay', 10000),
-        self.tau = algo_cfg.get('tau', 0.005),
+        self.gamma = algo_cfg.get('gamma', 0.99)
+        self.epsilon_start = algo_cfg.get('epsilon_start', 1.0)
+        self.epsilon_end = algo_cfg.get('epsilon_end', 0.01)
+        self.epsilon_decay = algo_cfg.get('epsilon_decay', 10000)
+        self.tau = algo_cfg.get('tau', 0.005)
         
         # 调用父类初始化（构建主模型）
         super().__init__(model, optimizer_cfg, scheduler_cfg, device)
@@ -96,13 +96,13 @@ class DQN(BaseAlgorithm):
             action = torch.randint(0, num_nodes, (1,))
         else:
             with torch.no_grad():
-                info = state['pyg_data']
-                output = self.model(
-                    x=info.x,
-                    edge_index=info.edge_index,
-                    batch=info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
-                    component=info.component,
-                )
+                info = state['pyg_data'].to(self.device)
+                output = self.model({
+                    'x': info.x,
+                    'edge_index': info.edge_index,
+                    'batch': info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
+                    'component': info.get('component'),
+                })
                 q_values = output['q_values'].squeeze(-1)
                 action = torch.argmax(q_values)
         
@@ -125,7 +125,7 @@ class DQN(BaseAlgorithm):
 
         # 前向传播
         self.set_train_mode()
-
+        
         # 计算当前 Q 值
         state_info = Batch.from_data_list([state['pyg_data'] for state in states]).to(self.device)
         actions = torch.LongTensor(actions).to(self.device)
@@ -135,30 +135,30 @@ class DQN(BaseAlgorithm):
 
         # 当前 Q 值
         with torch.set_grad_enabled(True):
-            output = self.model(
-                x=state_info.x,
-                edge_index=state_info.edge_index,
-                batch=state_info.get('batch', torch.zeros(state_info.x.shape[0], dtype=torch.long)),
-                component=state_info.component,
-            )
+            output = self.model({
+                    'x': state_info.x,
+                    'edge_index': state_info.edge_index,
+                    'batch': state_info.get('batch', torch.zeros(state_info.x.shape[0], dtype=torch.long)),
+                    'component': state_info.get('component'),
+                })
             current_q_values = output['q_values'].squeeze(-1)[actions]
 
         # 目标 Q 值
         with torch.no_grad():
-            temp_value = self.model(
-                x=next_state_info.x,
-                edge_index=next_state_info.edge_index,
-                batch=next_state_info.get('batch', torch.zeros(next_state_info.x.shape[0], dtype=torch.long)),
-                component=next_state_info.component,
-            )
-            next_actions = temp_value.squeeze(-1).argmax(dim=0)
+            temp_value = self.model({
+                    'x': next_state_info.x,
+                    'edge_index': next_state_info.edge_index,
+                    'batch': next_state_info.get('batch', torch.zeros(next_state_info.x.shape[0], dtype=torch.long)),
+                    'component': next_state_info.get('component'),
+            })
+            next_actions = temp_value['q_values'].squeeze(-1).argmax(dim=0)
 
-            next_output = self.target_model(
-                x=next_state_info.x,
-                edge_index=next_state_info.edge_index,
-                batch=next_state_info.get('batch', torch.zeros(next_state_info.x.shape[0], dtype=torch.long)),
-                component=next_state_info.component,
-            )
+            next_output = self.target_model({
+                    'x': next_state_info.x,
+                    'edge_index': next_state_info.edge_index,
+                    'batch': next_state_info.get('batch', torch.zeros(next_state_info.x.shape[0], dtype=torch.long)),
+                    'component': next_state_info.get('component'),
+            })
             next_q_values = next_output['q_values'].squeeze(-1)[next_actions]
             target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
 
@@ -240,12 +240,12 @@ class DQN(BaseAlgorithm):
         self.set_eval_mode()
         with torch.no_grad():
             info = state['pyg_data']
-            output = self.model(
-                x=info.x,
-                edge_index=info.edge_index,
-                batch=info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
-                component=info.component
-            )
+            output = self.model({
+                'x': info.x,
+                'edge_index': info.edge_index,
+                'batch': info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
+                'component': info.component
+            })
             return output['q_values'].squeeze(-1)
 
     def _run_training_loop(self,

@@ -102,3 +102,9 @@ class Registry:
 BACKBONES = Registry('backbones')
 HEADS = Registry('heads')
 NETWORK_DISMANTLER = Registry('network_dismantler')
+
+# 创建环境注册器
+ENVIRONMENTS = Registry('environments')
+
+# 创建算法注册器
+ALGORITHMS = Registry('algorithms')

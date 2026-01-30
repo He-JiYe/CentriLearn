@@ -3,8 +3,19 @@
 提供各种辅助函数和类
 """
 from .buffer import ReplayBuffer, RolloutBuffer
-from .builder import build_optimizer, build_scheduler, build_replaybuffer, build_backbone, build_head, build_network_dismantler, build_from_cfg
-from .registry import Registry, BACKBONES, HEADS, NETWORK_DISMANTLER
+from .builder import (
+    build_optimizer,
+    build_scheduler,
+    build_replaybuffer,
+    build_backbone,
+    build_head,
+    build_network_dismantler,
+    build_environment,
+    build_algorithm,
+    build_from_cfg,
+)
+from .registry import Registry, BACKBONES, HEADS, NETWORK_DISMANTLER, ENVIRONMENTS, ALGORITHMS
+from .train import train_from_cfg
 
 __all__ = [
     'ReplayBuffer',
@@ -16,8 +27,13 @@ __all__ = [
     'BACKBONES',
     'HEADS',
     'NETWORK_DISMANTLER',
+    'ENVIRONMENTS',
+    'ALGORITHMS',
     'build_backbone',
     'build_head',
     'build_network_dismantler',
-    'build_from_cfg'
+    'build_environment',
+    'build_algorithm',
+    'build_from_cfg',
+    'train_from_cfg'
 ]

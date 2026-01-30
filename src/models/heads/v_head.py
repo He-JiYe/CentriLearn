@@ -46,6 +46,6 @@ class VHead(nn.Module):
         """
         assert info.get('graph_embed') is not None, "graph_embed is required"
         graph_embed, batch = info.get('graph_embed'), info.get('batch')
-        info['v_values'] = self.mlp(graph_embed)[batch]
+        info['v_values'] = self.mlp(graph_embed)
         
         return info

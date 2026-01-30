@@ -118,7 +118,7 @@ class BaseEnv(ABC):
         # 连通分量标签
         component = self.connected_components(edge_index, num_nodes)
      
-        return Data(x=x, edge_index=edge_index, component=component)
+        return Data(x=x, edge_index=edge_index, component=component).to(self.device)
 
     def connected_components(self, edge_index, num_nodes) -> List[int]:
         """

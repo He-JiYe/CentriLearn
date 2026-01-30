@@ -7,8 +7,10 @@ import torch
 from typing import List, Tuple, Dict, Any
 from .base import BaseEnv
 from torch_geometric.utils import subgraph
+from src.utils.registry import ENVIRONMENTS
 
 
+@ENVIRONMENTS.register_module()
 class NetworkDismantlingEnv(BaseEnv):
     """网络瓦解环境
 
@@ -18,15 +20,15 @@ class NetworkDismantlingEnv(BaseEnv):
         remove_nodes: 已移除的节点列表
         lcc_size: 最大连通分量大小历史记录
     """
-    
-    def __init__(self, graph: nx.Graph, value_type: str = 'auc'):
+
+    def __init__(self, graph: nx.Graph, value_type: str = 'auc', is_undirected: bool = True, device: str = 'cpu'):
         """初始化网络瓦解环境
-        
+
         Args:
             graph: 网络图对象
             value_type: ['auc', 'ar']
         """
-        super().__init__(graph)
+        super().__init__(graph, is_undirected=is_undirected, device=device)
         self.value_type = value_type
     
     def _reset(self) -> None:
@@ -71,7 +73,7 @@ class NetworkDismantlingEnv(BaseEnv):
         edge_index, _ = subgraph(mapping, self.edge_index, relabel_nodes=True, num_nodes=self.num_nodes)
         components = self.connected_components(edge_index, num_nodes)
         components_size = torch.bincount(components)
-        return components_size.max()[0]
+        return components_size.max().item()
 
     def lcc_component(self) -> List:
         """返回剩余图的最大连通分量的索引"""

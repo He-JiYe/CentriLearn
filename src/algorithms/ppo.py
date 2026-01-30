@@ -9,9 +9,10 @@ from torch_geometric.data import Batch
 from torch_scatter import scatter_log_softmax, scatter_softmax
 from typing import Dict, Any, Optional, Tuple, Union
 from .base import BaseAlgorithm
-from src.utils import build_replaybuffer, build_network_dismantler
+from src.utils import build_replaybuffer, build_network_dismantler, ALGORITHMS
 
 
+@ALGORITHMS.register_module()
 class PPO(BaseAlgorithm):
     """Proximal Policy Optimization 算法
 
@@ -64,30 +65,30 @@ class PPO(BaseAlgorithm):
                       state: Dict[str, Any],
                       deterministic: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """选择动作
-        
+
         Args:
             state: 当前状态
             deterministic: 是否确定性策略
-            
+
         Returns:
             action: 选择的动作
             log_prob: 动作对数概率
-            value: 状态价值
+            value: 状态价值（标量）
         """
         self.set_eval_mode()
-        
+
         with torch.no_grad():
             info = state['pyg_data']
-            output = self.model(
-                x=info.x,
-                edge_index=info.edge_index,
-                batch=info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
-                component=info.component,
-            )
-            
-            logit = output['logit']
-            value = output['value']
-            
+            output = self.model({
+                'x': info.x,
+                'edge_index': info.edge_index,
+                'batch': info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
+                'component': info.component,
+            })
+
+            logit = output['logit'].squeeze()
+            value = output['v_values'].squeeze()
+
             if deterministic:
                 # 确定性策略：选择概率最大的动作
                 action = torch.argmax(logit, dim=0)
@@ -97,8 +98,8 @@ class PPO(BaseAlgorithm):
                 probs = F.softmax(logit, dim=0)
                 action = torch.multinomial(probs, 1)
                 log_prob = F.log_softmax(logit, dim=0)[action]
-        
-        return action.squeeze(), log_prob.squeeze(), value.squeeze()
+
+        return action.squeeze(), log_prob.squeeze(), value
     
     def collect_experience(self,
                            state: Dict[str, Any],
@@ -152,59 +153,59 @@ class PPO(BaseAlgorithm):
                 policy_loss_epoch = 0
                 value_loss_epoch = 0
                 entropy_loss_epoch = 0
-                
+
                 state_info = Batch.from_data_list([batch['states'][i]['pyg_data'] for i in batch]).to(self.device)
                 actions = torch.LongTensor([batch['actions']]).to(self.device)
                 old_log_probs = torch.FloatTensor([batch['old_log_probs']]).to(self.device)
                 returns = torch.FloatTensor([batch['returns']]).to(self.device)
                 advantages = torch.FloatTensor([batch['advantages']]).to(self.device)
                 old_values = torch.FloatTensor([batch['old_values']]).to(self.device)
-                
+
                 # 前向传播
                 batch_indices = state_info.get('batch', torch.zeros(state_info.x.shape[0], dtype=torch.long))
-                output = self.model(
-                    x=state_info.x,
-                    edge_index=state_info.edge_index,
-                    batch=batch_indices,
-                    component=state_info.component,
-                )
-                
-                new_logit = output['logit']
-                new_value = output['value']
-                
+                output = self.model({
+                    'x': state_info.x,
+                    'edge_index': state_info.edge_index,
+                    'batch': batch_indices,
+                    'component': state_info.component,
+                })
+
+                new_logit = output['logit'].squeeze()
+                new_value = output['v_values'].squeeze()
+
                 # 计算 ratio
                 log_prob = scatter_log_softmax(new_logit, batch_indices, dim=0)
                 new_log_prob = log_prob[actions]
                 ratio = torch.exp(new_log_prob - old_log_probs)
-                
+
                 # 计算 PPO loss
                 surr1 = ratio * advantages
                 surr2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
                 policy_loss_epoch = -torch.min(surr1, surr2)
-                
+
                 # 计算 value loss
                 value_clipped = old_values + torch.clamp(new_value - old_values, -self.clip_epsilon, self.clip_epsilon)
                 value_loss1 = F.mse_loss(new_value, returns, reduction='none')
                 value_loss2 = F.mse_loss(value_clipped, returns, reduction='none')
                 value_loss_epoch = torch.max(value_loss1, value_loss2)
-                
+
                 # 计算熵损失
                 probs = scatter_softmax(new_logit, batch_indices, dim=0)
                 entropy_loss_epoch = -torch.sum(probs * log_prob)
-                
+
                 # 合并 losses
                 policy_loss = policy_loss_epoch
                 value_loss = self.value_coef * value_loss_epoch
                 entropy_loss = -self.entropy_coef * entropy_loss_epoch
-                
+
                 total_loss = policy_loss + value_loss + entropy_loss
-                
+
                 # 反向传播
                 self.optimizer.zero_grad()
                 total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                 self.optimizer.step()
-                
+
                 total_policy_loss += policy_loss.item()
                 total_value_loss += value_loss.item()
                 total_entropy_loss += entropy_loss.item()
@@ -241,19 +242,20 @@ class PPO(BaseAlgorithm):
 
         Returns:
             action: 选择的动作
-            value: 状态价值
+            value: 状态价值（标量）
         """
         self.set_eval_mode()
         with torch.no_grad():
             info = state['pyg_data']
-            output = self.model(
-                x=info.x,
-                edge_index=info.edge_index,
-                batch=info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
-                component=info.component
-            )
-            logit = output['logit']
-            value = output['value']
+            output = self.model({
+                'x': info.x,
+                'edge_index': info.edge_index,
+                'batch': info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
+                'component': info.component
+            })
+            logit = output['logit'].squeeze()
+            value = output['v_values'].squeeze()
+
             action = torch.argmax(logit, dim=0)
         return action, value
 

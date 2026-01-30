@@ -35,7 +35,7 @@ class Qnet(nn.Module):
         if q_head_cfg is None:
             q_head_cfg = {
                 'type': 'QHead',
-                'input_dim': self.output_dim,
+                'in_channels': self.output_dim,
                 'hidden_layers': [1],
             }
 
@@ -45,7 +45,7 @@ class Qnet(nn.Module):
         """Forward pass (legacy compatibility).
 
         Args:
-            x: Node features [num_nodes, input_dim]
+            x: Node features [num_nodes, in_channels]
             edge_index: Edge indices [2, num_edges]
             batch: Batch assignment [num_nodes]
 

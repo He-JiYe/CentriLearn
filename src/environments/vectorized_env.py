@@ -70,17 +70,17 @@ class VectorizedEnv:
         Returns:
             重置后的观测列表
         """
+        if self.observations is None:
+            self.observations = [self.envs[i].reset() for i in range(self.num_envs)]
+
         if indices is None:
             indices = list(range(self.num_envs))
-        
+
         for idx in indices:
             self.observations[idx] = self.envs[idx].reset()
             self.dones[idx] = False
             self.infos[idx] = {}
-        
-        if self.observations is None:
-            self.observations = [self.envs[i].reset() for i in range(self.num_envs)]
-        
+
         return self.observations if len(indices) == self.num_envs else [self.observations[i] for i in indices]
     
     def step(self, actions: List[int]) -> Tuple[List[Any], List[float], List[bool], List[Dict[str, Any]]]:

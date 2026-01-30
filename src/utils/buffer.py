@@ -1,6 +1,5 @@
 """
-经验回放缓冲区和轨迹缓冲区实现
-支持 N-step 回报和优先度采样
+经验回放缓冲区和轨迹缓冲区
 """
 from typing import Dict, Any, List, Optional, Tuple
 import random
@@ -10,16 +9,10 @@ import torch
 
 
 class ReplayBuffer:
-    """经验回放缓冲区
-
-    存储经验元组 (state, action, reward, next_state, done) 并支持随机采样。
-    支持 N-step 回报和优先度采样。
-    """
+    """经验回放缓冲区"""
 
     def __init__(self,
                  capacity: int,
-                 state_dim: Optional[int] = None,
-                 action_dim: Optional[int] = None,
                  n_step: int = 1,
                  gamma: float = 0.99,
                  alpha: float = 0.6,
@@ -31,8 +24,6 @@ class ReplayBuffer:
 
         Args:
             capacity: 缓冲区容量
-            state_dim: 状态维度（用于预分配）
-            action_dim: 动作维度（用于预分配）
             n_step: N-step 回报的步数
             gamma: 折扣因子
             alpha: 优先度指数 (0 表示均匀采样，1 表示完全基于优先度)
@@ -84,7 +75,7 @@ class ReplayBuffer:
 
         # 如果 N-step 缓冲区已满，计算 N-step 回报
         if len(self.n_step_buffer) >= self.n_step:
-            n_step_reward, n_step_state, n_step_action, n_step_next_state, n_step_done = \
+            n_step_state, n_step_action, n_step_reward, n_step_next_state, n_step_done = \
                 self._get_n_step_experience()
 
             if self.prioritized:
@@ -197,7 +188,6 @@ class ReplayBuffer:
 
 class RolloutBuffer:
     """PPO 轨迹缓冲区
-
     存储 PPO 算法的完整轨迹，支持 GAE 优势计算和批次生成。
     """
 

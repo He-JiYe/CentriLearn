@@ -41,7 +41,7 @@ class ActorCritic(nn.Module):
         if actor_head_cfg is None:
             actor_head_cfg = {
                 'type': 'LogitHead',
-                'input_dim': self.output_dim,
+                'in_channels': self.output_dim,
                 'hidden_layers': [1],
             }
 
@@ -51,7 +51,7 @@ class ActorCritic(nn.Module):
         if critic_head_cfg is None:
             critic_head_cfg = {
                 'type': 'VHead',
-                'input_dim': self.output_dim,
+                'in_channels': self.output_dim,
                 'hidden_layers': [1],
             }
 
@@ -63,7 +63,7 @@ class ActorCritic(nn.Module):
         """Forward pass (legacy compatibility).
 
         Args:
-            x: Node features [num_nodes, input_dim]
+            x: Node features [num_nodes, in_channels]
             edge_index: Edge indices [2, num_edges]
             batch: Batch assignment [num_nodes]
             component: Component assignment for each node [num_nodes] (optional)
