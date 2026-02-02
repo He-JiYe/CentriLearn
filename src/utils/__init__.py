@@ -14,7 +14,7 @@ from .builder import (
     build_algorithm,
     build_from_cfg,
 )
-from .registry import Registry, BACKBONES, HEADS, NETWORK_DISMANTLER, ENVIRONMENTS, ALGORITHMS
+from .registry import Registry, NN, BACKBONES, HEADS, NETWORK_DISMANTLER, ENVIRONMENTS, ALGORITHMS
 from .train import train_from_cfg
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     'build_scheduler',
     'build_replaybuffer',
     'Registry',
+    'NN',
     'BACKBONES',
     'HEADS',
     'NETWORK_DISMANTLER',

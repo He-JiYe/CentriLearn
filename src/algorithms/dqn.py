@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, Tuple, Union
 import random
 import numpy as np
 from .base import BaseAlgorithm
-from src.utils import build_network_dismantler, build_replaybuffer, ALGORITHMS
+from src.utils import build_network_dismantler, ReplayBuffer, ALGORITHMS
 
 @ALGORITHMS.register_module()
 class DQN(BaseAlgorithm):
@@ -21,7 +21,7 @@ class DQN(BaseAlgorithm):
         model: Q-network 模型实例 或 模型配置字典
         optimizer_cfg: 优化器配置
         scheduler_cfg: 学习率调度器配置
-        replay_buffer_cfg: 经验回放缓冲区配置
+        replay_buffer: 经验回放缓冲区引用
         dqn_cfg: DQN算法配置
         device: 运行设备
     """
@@ -30,7 +30,7 @@ class DQN(BaseAlgorithm):
                  model: Union[nn.Module, Dict[str, Any]],
                  optimizer_cfg: Optional[Dict[str, Any]] = None,
                  scheduler_cfg: Optional[Dict[str, Any]] = None,
-                 replaybuffer_cfg: Optional[Dict[str, Any]] = None,
+                 replaybuffer: ReplayBuffer = None,
                  algo_cfg: Optional[Dict[str, Any]] = None,
                  device: str = 'cpu'):
         """初始化 DQN 算法"""
@@ -56,7 +56,7 @@ class DQN(BaseAlgorithm):
         self.target_model.load_state_dict(self.model.state_dict())
         
         # 经验回放缓冲区
-        self.replay_buffer = build_replaybuffer(replaybuffer_cfg)
+        self.replay_buffer = replaybuffer
     
     def _build_model(self, model_cfg: Dict[str, Any]) -> nn.Module:
         """从配置构建模型
@@ -100,7 +100,7 @@ class DQN(BaseAlgorithm):
                 output = self.model({
                     'x': info.x,
                     'edge_index': info.edge_index,
-                    'batch': info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
+                    'batch': info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long, device=self.device)),
                     'component': info.get('component'),
                 })
                 q_values = output['q_values'].squeeze(-1)
@@ -249,9 +249,9 @@ class DQN(BaseAlgorithm):
             return output['q_values'].squeeze(-1)
 
     def _run_training_loop(self,
-                               env: Any,
-                               training_cfg: Dict[str, Any],
-                               verbose: bool = True) -> Dict[str, Any]:
+                           env: Any,
+                           training_cfg: Dict[str, Any],
+                           verbose: bool = True) -> Dict[str, Any]:
         """DQN 训练循环实现
 
         Args:

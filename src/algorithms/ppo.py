@@ -9,7 +9,7 @@ from torch_geometric.data import Batch
 from torch_scatter import scatter_log_softmax, scatter_softmax
 from typing import Dict, Any, Optional, Tuple, Union
 from .base import BaseAlgorithm
-from src.utils import build_replaybuffer, build_network_dismantler, ALGORITHMS
+from src.utils import RolloutBuffer, build_network_dismantler, ALGORITHMS
 
 
 @ALGORITHMS.register_module()
@@ -31,7 +31,7 @@ class PPO(BaseAlgorithm):
                  model: Union[nn.Module, Dict[str, Any]],
                  optimizer_cfg: Optional[Dict[str, Any]] = None,
                  scheduler_cfg: Optional[Dict[str, Any]] = None,
-                 replaybuffer_cfg: Optional[Dict[str, Any]] = None,
+                 replaybuffer: RolloutBuffer = None,
                  algo_cfg: Optional[Dict[str, Any]] = None,
                  device: str = 'cpu'):
         """初始化 PPO 算法"""
@@ -48,7 +48,7 @@ class PPO(BaseAlgorithm):
         super().__init__(model, optimizer_cfg, scheduler_cfg, device)
 
         # 轨迹缓冲区
-        self.rollout_buffer = build_replaybuffer(replaybuffer_cfg)
+        self.rollout_buffer = replaybuffer
 
     def _build_model(self, model_cfg: Dict[str, Any]) -> nn.Module:
         """从配置构建模型
@@ -82,7 +82,7 @@ class PPO(BaseAlgorithm):
             output = self.model({
                 'x': info.x,
                 'edge_index': info.edge_index,
-                'batch': info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long)),
+                'batch': info.get('batch', torch.zeros(info.x.shape[0], dtype=torch.long, device=self.device)),
                 'component': info.component,
             })
 
@@ -260,9 +260,9 @@ class PPO(BaseAlgorithm):
         return action, value
 
     def _run_training_loop(self,
-                               env: Any,
-                               training_cfg: Dict[str, Any],
-                               verbose: bool = True) -> Dict[str, Any]:
+                           env: Any,
+                           training_cfg: Dict[str, Any],
+                           verbose: bool = True) -> Dict[str, Any]:
         """PPO 训练循环实现
 
         Args:

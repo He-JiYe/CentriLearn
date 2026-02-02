@@ -3,21 +3,21 @@ Deep network backbone with residual connections for graph reinforcement learning
 """
 import torch
 import torch.nn as nn
-from src.models.nn.GraphSAGE import GraphSAGE
 from src.utils.registry import BACKBONES
+from src.utils.builder import build_nn
 from typing import Dict, Any, Union
 from torch_geometric.typing import OptTensor
 
-class GraphSAGEBlock(nn.Module):
-    """A single GraphSAGE block with optional residual connection.
+class Block(nn.Module):
+    """A single nn block with optional residual connection.
 
-    Similar to ResNet block, this block wraps a single-layer GraphSAGE
+    Similar to ResNet block, this block wraps a single-layer nn
     and applies normalization, activation, and optional residual connection.
 
     Args:
         in_channels: Input feature dimension.
         out_channels: Output feature dimension.
-        aggr: GraphSAGE aggregation method.
+        aggr: nn aggregation method.
         graph_aggr: Graph pooling method.
         norm: Normalization type.
         dropout: Dropout probability.
@@ -27,27 +27,30 @@ class GraphSAGEBlock(nn.Module):
     def __init__(self,
                  in_channels: int,
                  out_channels: int,
+                 nn: str = 'GraphSAGE',
                  aggr: str = 'mean',
                  graph_aggr: str = 'add',
                  norm: str = 'layer',
                  dropout: float = 0.0,
-                 use_residual: bool = True):
+                 use_residual: bool = True,
+                 **kwargs):
         super().__init__()
 
         self.use_residual = use_residual
         self.channel_match = (in_channels == out_channels)
 
         # Single-layer GraphSAGE
-        self.conv = GraphSAGE(
-            in_channels=in_channels,
-            hidden_channels=out_channels,
-            num_layers=1,
-            output_dim=out_channels,
-            aggr=aggr,
-            graph_aggr=graph_aggr,
-            norm=norm,
-            dropout=dropout
-        )
+        self.conv = build_nn({
+            'type': nn,
+            'in_channels': in_channels,
+            'hidden_channels': out_channels,
+            'num_layers': 1,
+            'output_dim': out_channels,
+            'aggr': aggr,
+            'graph_aggr': graph_aggr,
+            'norm': norm,
+            'dropout': dropout,
+        })
 
         # Normalization
         if norm == 'layer':
@@ -134,7 +137,8 @@ class DeepNet(nn.Module):
                  norm: str = 'layer',
                  dropout: float = 0.0,
                  use_residual: bool = True,
-                 output_dim: int = None):
+                 output_dim: int = None,
+                 nn: str = 'GraphSAGE'):
         super().__init__()
 
         self.in_channels = in_channels
@@ -167,7 +171,7 @@ class DeepNet(nn.Module):
             self.head = None
 
     def _make_blocks(self, hidden_channels, num_blocks, block_config,
-                     aggr, graph_aggr, norm, dropout, use_residual):
+                     aggr, graph_aggr, norm, dropout, use_residual, nn):
         """Build sequence of GraphSAGE blocks."""
         blocks = nn.ModuleList()
 
@@ -178,7 +182,7 @@ class DeepNet(nn.Module):
             # Same configuration for all blocks
             for _ in range(num_blocks):
                 blocks.append(
-                    GraphSAGEBlock(
+                    Block(
                         in_channels=hidden_channels,
                         out_channels=hidden_channels,
                         aggr=aggr,
@@ -186,6 +190,7 @@ class DeepNet(nn.Module):
                         norm=norm,
                         dropout=dropout,
                         use_residual=use_residual,
+                        nn=nn,
                         **block_config
                     )
                 )
@@ -199,10 +204,11 @@ class DeepNet(nn.Module):
                     'graph_aggr': graph_aggr,
                     'norm': norm,
                     'dropout': dropout,
-                    'use_residual': use_residual
+                    'use_residual': use_residual,
+                    'nn': nn
                 }
                 block_kwargs.update(cfg)
-                blocks.append(GraphSAGEBlock(**block_kwargs))
+                blocks.append(Block(**block_kwargs))
         else:
             raise ValueError(f"block_config must be dict or list, got {type(block_config)}")
 

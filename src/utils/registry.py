@@ -99,6 +99,7 @@ class Registry:
 
 
 # 创建模型注册器
+NN = Registry('nn')
 BACKBONES = Registry('backbones')
 HEADS = Registry('heads')
 NETWORK_DISMANTLER = Registry('network_dismantler')

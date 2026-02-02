@@ -5,8 +5,8 @@
 import torch
 from torch import nn
 import inspect
-from typing import Dict, Any, Optional, Union, List, Tuple
-from .registry import BACKBONES, HEADS, NETWORK_DISMANTLER, ENVIRONMENTS, ALGORITHMS
+from typing import Dict, Any, Optional, Union, List
+from .registry import NN, BACKBONES, HEADS, NETWORK_DISMANTLER, ENVIRONMENTS, ALGORITHMS
 from .buffer import ReplayBuffer, RolloutBuffer
 
 
@@ -87,7 +87,7 @@ def build_optimizer(model: torch.nn.Module, cfg: Dict[str, Any]) -> torch.optim.
         >>> optimizer = build_optimizer(model, optimizer_cfg)
     """
     optimizer_type = cfg.get('type', 'Adam')
-    lr = cfg.get('lr', 1e-4)
+    lr = float(cfg.get('lr', 1e-4))
     weight_decay = cfg.get('weight_decay', 0)
 
     # 移除 type, lr, weight_decay 键
@@ -368,6 +368,22 @@ def build_from_cfg(cfg: Dict, registry, default_args: Dict = None):
 
     return obj_cls(**args)
 
+def build_nn(cfg: Union[Dict, List], default_args: Dict = None):
+    """从配置构建 nn
+
+    Args:
+        cfg: nn 配置，可以是字典或字典列表
+        default_args: 默认参数
+
+    Returns:
+        构建的 nn 模块
+    """
+    if isinstance(cfg, list):
+        return nn.Sequential(*[
+            build_from_cfg(_cfg, NN, default_args) for _cfg in cfg
+        ])
+    return build_from_cfg(cfg, NN, default_args)
+
 
 def build_backbone(cfg: Union[Dict, List], default_args: Dict = None):
     """从配置构建 backbone
@@ -445,6 +461,15 @@ def build_environment(cfg: Dict, default_args: Dict = None):
         from ..environments import VectorizedEnv
         env_kwargs_list = cfg.get('env_kwargs_list', [])
         return VectorizedEnv(env_class, env_kwargs_list)
+
+    if cfg.get('graph_file'):
+        from networkx import read_edgelist
+        cfg['graph'] = read_edgelist(cfg.get('graph_file'), nodetype=int)
+        cfg.pop('graph_file')
+
+    if cfg.get('graph') is None:
+        from networkx import barabasi_albert_graph
+        cfg['graph'] = barabasi_albert_graph(50, 3)
 
     return build_from_cfg(cfg, ENVIRONMENTS, default_args)
 

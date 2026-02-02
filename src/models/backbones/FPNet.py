@@ -3,8 +3,8 @@ Feature Pyramid Network backbone for multi-scale graph features.
 """
 import torch
 import torch.nn as nn
-from src.models.nn.GraphSAGE import GraphSAGE
 from src.utils.registry import BACKBONES
+from src.utils.builder import build_nn
 from typing import Dict, Any
 
 @BACKBONES.register_module()
@@ -38,6 +38,7 @@ class FPNet(nn.Module):
                  dropout: float = 0.0,
                  fusion_mode: str = 'add',
                  output_dim: int = None,
+                 nn: str = 'GraphSAGE',
                  **kwargs):
         super().__init__()
 
@@ -65,20 +66,19 @@ class FPNet(nn.Module):
 
             # GraphSAGE encoder with different depth for each level
             self.pyramid.append(
-                GraphSAGE(
-                    in_channels=hidden_channels,
-                    hidden_channels=hidden_channels,
-                    num_layers=num_layers,
-                    output_dim=hidden_channels,
-                    aggr=aggr,
-                    graph_aggr=graph_aggr,
-                    norm=norm,
-                    dropout=dropout,
+                build_nn({
+                    'type': nn,
+                    'in_channels': hidden_channels,
+                    'hidden_channels': hidden_channels,
+                    'num_layers': num_layers,
+                    'output_dim': hidden_channels,
+                    'aggr': aggr,
+                    'graph_aggr': graph_aggr,
+                    'norm': norm,
+                    'dropout': dropout,
                     **kwargs
-                )
+                })
             )
-
-            prev_dim = hidden_channels
 
         # Feature fusion layer
         if fusion_mode == 'concat':

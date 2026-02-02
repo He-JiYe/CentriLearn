@@ -21,12 +21,18 @@ class NetworkDismantlingEnv(BaseEnv):
         lcc_size: 最大连通分量大小历史记录
     """
 
-    def __init__(self, graph: nx.Graph, value_type: str = 'auc', is_undirected: bool = True, device: str = 'cpu'):
+    def __init__(self, 
+                 graph: nx.Graph, 
+                 value_type: str = 'auc', 
+                 is_undirected: bool = True,
+                 device: str = 'cpu'):
         """初始化网络瓦解环境
 
         Args:
             graph: 网络图对象
             value_type: ['auc', 'ar']
+            is_undirected: 是否为无向图
+            device: 设备类型
         """
         super().__init__(graph, is_undirected=is_undirected, device=device)
         self.value_type = value_type
@@ -52,6 +58,8 @@ class NetworkDismantlingEnv(BaseEnv):
         # 移除节点
         self.remove_node(action, mapping)
 
+        next_state = self.get_state()
+
         if self.value_type == 'auc':
             reward = -self.lcc() / (self.num_nodes * self.num_nodes)
         elif self.value_type == 'ar':
@@ -60,7 +68,7 @@ class NetworkDismantlingEnv(BaseEnv):
         done = self.is_empty() or self.lcc() <= 1
         info = {}
         
-        return reward, done, info
+        return next_state, reward, done, info
     
     def get_state(self) -> Dict[str, Any]:
         info = super().get_state()
@@ -81,8 +89,8 @@ class NetworkDismantlingEnv(BaseEnv):
         num_nodes = mapping.shape[0]
         edge_index, _ = subgraph(mapping, self.edge_index, relabel_nodes=True, num_nodes=self.num_nodes)
         components = self.connected_components(edge_index, num_nodes)
-        components_size = torch.bincount(components)
-        return components_size.max()[1]
+        lcc = torch.bincount(components).max()[0]
+        return components[components.eq(lcc)]
 
     def remove_node(self, node: int, mapping: Dict[int, int]):
         """移除节点 node"""
