@@ -21,14 +21,16 @@ class BaseEnv(ABC):
         node_mask: 节点掩码
         num_nodes: 网络节点数
     """
-    def __init__(self, graph: nx.Graph, is_undirected: bool = True, device: str = 'cpu'):
+    def __init__(self, graph: nx.Graph, node_features: str = 'ones', is_undirected: bool = True, device: str = 'cpu'):
         """设置原始网络图并重新映射节点编号
         
         Args:
             graph: 网络图对象
+            node_features: 节点特征类型 ('ones', 'degree', 'combin')
             is_undirected: 是否将图转换为无向图
         """
         self.device = device
+        self.node_features = node_features
         self.reset(graph, is_undirected)
 
     def reset(self, graph: Optional[nx.Graph] = None, is_undirected: bool = True) -> Dict[str, Any]:
@@ -85,12 +87,12 @@ class BaseEnv(ABC):
             'pyg_data': self.get_pyg_data(),
         }
 
-    def get_pyg_data(self, node_features: Optional[str] = 'combin') -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def get_pyg_data(self, mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """获取PyG格式的剩余图数据
         
         Args:
-            node_features: 节点特征类型 ('ones', 'degree', 'combin')
-            
+            mask: 节点掩码
+
         Returns:
             Data(
             x: 节点特征张量 [num_nodes, feature_dim], 
@@ -98,22 +100,27 @@ class BaseEnv(ABC):
             component: 连通分量标签 [num_nodes]
             )
         """
+        node_mask = self.node_mask
+        if mask is not None:
+            node_mask &= mask
+
         # 获取剩余图节点索引
-        mapping = self.node_mask.nonzero(as_tuple=False).view(-1)
+        mapping = node_mask.nonzero(as_tuple=False).view(-1)
+
         edge_index, _ = subgraph(mapping, self.edge_index, relabel_nodes=True, num_nodes=self.num_nodes)
         
         # 构建节点特征
         num_nodes = mapping.shape[0]
-        if node_features == 'default':
+        if self.node_features == 'ones':
             x = torch.ones(num_nodes, 2, device=self.device)
-        elif node_features == 'degree':
+        elif self.node_features == 'degree':
             deg = degree(edge_index[0], num_nodes)
             x = torch.stack([deg, deg], dim=1, device=self.device)
-        elif node_features == 'combin':
+        elif self.node_features == 'combin':
             deg = degree(edge_index[0], num_nodes) / num_nodes
             x = torch.cat([torch.ones(num_nodes, 1, device=self.device), deg.unsqueeze(-1)], dim=1)
         else:
-            raise ValueError(f"Unknown node_features: {node_features}")
+            raise ValueError(f"Unknown node_features: {self.node_features}")
         
         # 连通分量标签
         component = self.connected_components(edge_index, num_nodes)

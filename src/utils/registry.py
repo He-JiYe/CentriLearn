@@ -109,3 +109,9 @@ ENVIRONMENTS = Registry('environments')
 
 # 创建算法注册器
 ALGORITHMS = Registry('algorithms')
+
+# 创建经验缓冲池注册器
+REPLAYBUFFERS = Registry('replaybuffers')
+
+# 创建指标注册器
+METRICS = Registry('metrics')

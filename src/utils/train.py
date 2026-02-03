@@ -18,7 +18,6 @@ def train_from_cfg(config: Dict[str, Any],
         config: 训练配置字典，包含以下键：
             - algorithm: 算法配置
             - environment: 环境配置
-            - replaybuffer: 经验缓冲池配置
             - training: 训练参数
 
         verbose: 是否打印训练日志
@@ -32,17 +31,17 @@ def train_from_cfg(config: Dict[str, Any],
     if not isinstance(config, dict):
         raise TypeError(f'config must be a dict, but got {type(config)}')
 
-    required_keys = ['algorithm', 'environment', 'replaybuffer', 'training']
+    required_keys = ['algorithm', 'environment', 'training']
     for key in required_keys:
         if key not in config:
             raise KeyError(f'config must contain "{key}", but got keys: {config.keys()}')
 
-    algorithm_required_keys = ['type', 'model', 'optimizer_cfg', 'algo_cfg', 'device']
+    algorithm_required_keys = ['type', 'model', 'optimizer_cfg', 'replaybuffer_cfg', 'algo_cfg', 'device']
     for key in algorithm_required_keys:
         if key not in config['algorithm']:
             raise KeyError(f'algorithm config must contain "{key}", but got keys: {config.keys()}')
 
-    algorithm_cfg, buffer_cfg, env_cfg, training_cfg = config['algorithm'], config['replaybuffer'], config['environment'], config['training']
+    algorithm_cfg, env_cfg, training_cfg = config['algorithm'], config['environment'], config['training']
 
     if verbose:
         print("\n" + "=" * 70)
@@ -51,7 +50,7 @@ def train_from_cfg(config: Dict[str, Any],
 
     # 1. 构建环境
     if verbose:
-        print(f"\n[1/5] 构建环境: {env_cfg.get('type', 'unknown')}")
+        print(f"\n[1/4] 构建环境: {env_cfg.get('type', 'unknown')}")
 
     # 延迟导入构建函数
     from src.utils.builder import build_environment
@@ -60,15 +59,9 @@ def train_from_cfg(config: Dict[str, Any],
     if verbose:
         print(f"      [OK] 环境构建完成: {env}")
 
-    # 2. 构建经验缓冲池
-    if verbose:
-        print(f"\n[2/5] 构建经验缓冲池: {buffer_cfg.get('type', 'unknown')}")
-    from src.utils.builder import build_replaybuffer
-    replaybuffer = build_replaybuffer(buffer_cfg)
-
     # 3. 构建算法
     if verbose:
-        print(f"\n[3/5] 构建算法: {algorithm_cfg['type']}")
+        print(f"\n[3/4] 构建算法: {algorithm_cfg['type']}")
         print(f"      - 模型类型: {algorithm_cfg.get('model', 'unknown')}")
         print(f"      - 优化器: {algorithm_cfg.get('optimizer_cfg', {}).get('type')} (lr={algorithm_cfg.get('optimizer_cfg', {}).get('lr', 'N/A')})")
 
@@ -79,26 +72,24 @@ def train_from_cfg(config: Dict[str, Any],
     if algorithm_cfg['type'] not in ALGORITHMS:
         raise ValueError(f"Unsupported algorithm type: {algorithm_cfg['type']}. "
                         f"Available algorithms: {list(ALGORITHMS.module_dict.keys())}")
-    
-    algorithm_cfg.update({'replaybuffer': replaybuffer})
+
     algorithm = build_algorithm(algorithm_cfg)
 
     if verbose:
         print(f"      [OK] 算法构建完成: {algorithm}")
 
     # 4. 执行训练
-    # 合并 kwargs，kwargs 中的配置优先级更高
     final_training_cfg = {**training_cfg, **kwargs}
 
     if verbose:
-        print(f"\n[4/5] 开始训练...")
+        print(f"\n[4/4] 开始训练...")
         print(f"      训练配置: {final_training_cfg}")
 
     results = algorithm._run_training_loop(env, final_training_cfg)
 
     # 5. 训练完成
     if verbose:
-        print(f"\n[5/5] 训练完成！")
+        print(f"\n[5/4] 训练完成！")
         print(f"\n训练结果:")
         for key, value in results.items():
             if key != 'episode_rewards':  # 避免打印过长的列表
@@ -113,7 +104,7 @@ if __name__ == "__main__":
     
     # 加载配置
     with open('configs/network_dismantling/dqn.yaml', 'r') as f:
-        config = yaml.safe_load(f)
-
+        config = yaml.load(f.read(), Loader=yaml.FullLoader)
+        
     # 开始训练
     results, algo = train_from_cfg(config, verbose=True)

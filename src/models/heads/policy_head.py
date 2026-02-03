@@ -1,5 +1,5 @@
 """
-Logit head for policy/action probability.
+Policy head for policy/action probability.
 """
 import torch
 import torch.nn as nn
@@ -8,8 +8,8 @@ from src.utils.registry import HEADS
 from typing import Dict, Any
 
 @HEADS.register_module()
-class LogitHead(nn.Module):
-    """Logit head for policy/action probability.
+class PolicyHead(nn.Module):
+    """Policy head for policy/action probability.
 
     Args:
         in_channels: Input feature dimension.

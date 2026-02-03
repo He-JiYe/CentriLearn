@@ -24,18 +24,21 @@ class NetworkDismantlingEnv(BaseEnv):
     def __init__(self, 
                  graph: nx.Graph, 
                  value_type: str = 'auc', 
-                 is_undirected: bool = True,
-                 device: str = 'cpu'):
+                 use_gcc: bool = False,
+                 **kwargs):
         """初始化网络瓦解环境
 
         Args:
             graph: 网络图对象
+            node_features: 节点特征类型 ('ones', 'degree', 'combin')
+            is_undirected: 是否将图转换为无向图
             value_type: ['auc', 'ar']
-            is_undirected: 是否为无向图
+            use_gcc: 只与最大连通分支进行交互
             device: 设备类型
         """
-        super().__init__(graph, is_undirected=is_undirected, device=device)
         self.value_type = value_type
+        self.use_gcc = use_gcc
+        super().__init__(graph, **kwargs)
     
     def _reset(self) -> None:
         """重置环境"""
@@ -71,9 +74,19 @@ class NetworkDismantlingEnv(BaseEnv):
         return next_state, reward, done, info
     
     def get_state(self) -> Dict[str, Any]:
-        info = super().get_state()
-        return info
+        if self.use_gcc:
+            gcc = self.lcc_component()
+            pyg_data = self.get_pyg_data(mask=gcc)
+        else:
+            pyg_data = self.get_pyg_data()
 
+        info = {
+            'mapping': self.node_mask.nonzero(as_tuple=False).view(-1),         # mapping[当前图索引] -> 原始图索引
+            'pyg_data': pyg_data,
+        }
+
+        return info
+        
     def lcc(self) -> int:
         """返回剩余图的最大连通分量"""
         mapping = self.node_mask.nonzero(as_tuple=False).view(-1)
@@ -90,19 +103,12 @@ class NetworkDismantlingEnv(BaseEnv):
         edge_index, _ = subgraph(mapping, self.edge_index, relabel_nodes=True, num_nodes=self.num_nodes)
         components = self.connected_components(edge_index, num_nodes)
         lcc = torch.bincount(components).max()[0]
-        return components[components.eq(lcc)]
+        return components.eq(lcc)
 
     def remove_node(self, node: int, mapping: Dict[int, int]):
         """移除节点 node"""
         masked_node = mapping[node]
         self.node_mask[masked_node] = False
 
-if __name__ == "__main__":
-    graph = nx.barabasi_albert_graph(50, 2)
-    env = NetworkDismantlingEnv(graph)
-
-    print(env)
-    print(env.is_empty())
-    env.node_mask[[0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]] = False
-    data = env.get_pyg_data()
-    print(data.component)
+        self.remove_nodes.append(masked_node)
+        self.lcc_size.append(self.lcc() / self.num_nodes)

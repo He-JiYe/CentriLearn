@@ -9,7 +9,7 @@ from torch_geometric.data import Batch
 from torch_scatter import scatter_log_softmax, scatter_softmax
 from typing import Dict, Any, Optional, Tuple, Union
 from .base import BaseAlgorithm
-from src.utils import RolloutBuffer, build_network_dismantler, ALGORITHMS
+from src.utils import build_network_dismantler, ALGORITHMS
 
 
 @ALGORITHMS.register_module()
@@ -23,6 +23,7 @@ class PPO(BaseAlgorithm):
         optimizer_cfg: 优化器配置
         scheduler_cfg: 学习率调度器配置
         replaybuffer_cfg: 轨迹缓冲区配置
+        metric_manager_cfg: 指标管理器配置
         algo_cfg: 算法配置
         device: 运行设备
     """
@@ -31,7 +32,8 @@ class PPO(BaseAlgorithm):
                  model: Union[nn.Module, Dict[str, Any]],
                  optimizer_cfg: Optional[Dict[str, Any]] = None,
                  scheduler_cfg: Optional[Dict[str, Any]] = None,
-                 replaybuffer: RolloutBuffer = None,
+                 replaybuffer_cfg: Optional[Dict[str, Any]] = None,
+                 metric_manager_cfg: Optional[Dict[str, Any]] = None,
                  algo_cfg: Optional[Dict[str, Any]] = None,
                  device: str = 'cpu'):
         """初始化 PPO 算法"""
@@ -45,10 +47,7 @@ class PPO(BaseAlgorithm):
         self.num_epochs = algo_cfg.get('num_epochs', 10)
         
         # 调用父类初始化（支持模型配置）
-        super().__init__(model, optimizer_cfg, scheduler_cfg, device)
-
-        # 轨迹缓冲区
-        self.rollout_buffer = replaybuffer
+        super().__init__(model, optimizer_cfg, scheduler_cfg, replaybuffer_cfg, metric_manager_cfg, device)
 
     def _build_model(self, model_cfg: Dict[str, Any]) -> nn.Module:
         """从配置构建模型
@@ -118,7 +117,7 @@ class PPO(BaseAlgorithm):
             done: 是否终止
             value: 状态价值估计
         """
-        self.rollout_buffer.push(state, action, log_prob, reward, done, value)
+        self.replay_buffer.push(state, action.item(), log_prob.item(), reward, done, value.item())
     
     def update(self, batch_size: int = 64) -> Dict[str, float]:
         """更新模型
@@ -129,11 +128,11 @@ class PPO(BaseAlgorithm):
         Returns:
             训练指标字典
         """
-        if len(self.rollout_buffer) == 0:
+        if len(self.replay_buffer) == 0:
             return {'policy_loss': 0.0, 'value_loss': 0.0, 'entropy_loss': 0.0}
         
         # 获取训练批次
-        batches = self.rollout_buffer.get_batches(
+        batches = self.replay_buffer.get_batches(
             batch_size=batch_size,
             gamma=self.gamma,
             gae_lambda=self.gae_lambda
@@ -153,8 +152,8 @@ class PPO(BaseAlgorithm):
                 policy_loss_epoch = 0
                 value_loss_epoch = 0
                 entropy_loss_epoch = 0
-
-                state_info = Batch.from_data_list([batch['states'][i]['pyg_data'] for i in batch]).to(self.device)
+    
+                state_info = Batch.from_data_list([i['pyg_data'] for i in batch['states']]).to(self.device)
                 actions = torch.LongTensor([batch['actions']]).to(self.device)
                 old_log_probs = torch.FloatTensor([batch['old_log_probs']]).to(self.device)
                 returns = torch.FloatTensor([batch['returns']]).to(self.device)
@@ -170,24 +169,24 @@ class PPO(BaseAlgorithm):
                     'component': state_info.component,
                 })
 
-                new_logit = output['logit'].squeeze()
-                new_value = output['v_values'].squeeze()
+                new_logit = output['logit'].squeeze()           
+                new_value = output['v_values'].squeeze()        
 
                 # 计算 ratio
-                log_prob = scatter_log_softmax(new_logit, batch_indices, dim=0)
-                new_log_prob = log_prob[actions]
+                log_prob = scatter_log_softmax(new_logit, batch_indices, dim=0) 
+                new_log_prob = log_prob[actions]                            
                 ratio = torch.exp(new_log_prob - old_log_probs)
 
                 # 计算 PPO loss
                 surr1 = ratio * advantages
                 surr2 = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
-                policy_loss_epoch = -torch.min(surr1, surr2)
+                policy_loss_epoch = -torch.min(surr1, surr2).mean()
 
                 # 计算 value loss
                 value_clipped = old_values + torch.clamp(new_value - old_values, -self.clip_epsilon, self.clip_epsilon)
-                value_loss1 = F.mse_loss(new_value, returns, reduction='none')
+                value_loss1 = F.mse_loss(new_value.unsqueeze(0), returns, reduction='none')
                 value_loss2 = F.mse_loss(value_clipped, returns, reduction='none')
-                value_loss_epoch = torch.max(value_loss1, value_loss2)
+                value_loss_epoch = torch.max(value_loss1, value_loss2).mean()
 
                 # 计算熵损失
                 probs = scatter_softmax(new_logit, batch_indices, dim=0)
@@ -214,7 +213,7 @@ class PPO(BaseAlgorithm):
         self.training_step += num_updates
         
         # 清空缓冲区
-        self.rollout_buffer.clear()
+        self.replay_buffer.clear()
         
         return {
             'policy_loss': total_policy_loss / num_updates if num_updates > 0 else 0.0,
@@ -275,8 +274,11 @@ class PPO(BaseAlgorithm):
         """
         # 获取训练参数
         batch_size = training_cfg.get('batch_size', 64)
-        max_steps = training_cfg.get('max_steps_per_episode', 100)
+        max_steps = training_cfg.get('max_steps', 1000)
         num_episodes = training_cfg.get('num_episodes', 100)
+        log_interval = training_cfg.get('log_interval', 10)
+        eval_interval = training_cfg.get('eval_interval', 50)
+        eval_episodes = training_cfg.get('eval_episodes', 5)
 
         # 初始化
         total_reward = 0
@@ -296,11 +298,17 @@ class PPO(BaseAlgorithm):
                 action, log_prob, value = self.select_action(state)
 
                 # 执行动作
-                next_state, reward, done, _ = env.step(action, state['mapping'])
+                next_state, reward, done, info = env.step(action, state['mapping'])
                 episode_reward += reward
 
                 # 收集经验
                 self.collect_experience(state, action, log_prob, reward, done, value)
+
+                if self.metric_manager is not None:
+                    self.metric_manager.update(
+                        state, action, reward, next_state, done,
+                        {'lcc_size': env.lcc_size[-1], 'num_nodes': env.num_nodes}
+                    )
 
                 # 更新状态
                 state = next_state if not done else env.reset()
@@ -309,7 +317,7 @@ class PPO(BaseAlgorithm):
                     break
 
             # 更新模型
-            if len(self.rollout_buffer) > 0:
+            if len(self.replay_buffer) > 0:
                 metrics = self.update(batch_size)
                 self.step_scheduler(metrics)
 
@@ -317,15 +325,27 @@ class PPO(BaseAlgorithm):
             episode_rewards.append(episode_reward)
 
             # 打印训练日志
-            if verbose and (episode + 1) % 5 == 0:
-                avg_reward = sum(episode_rewards[-5:]) / len(episode_rewards[-5:])
+            if verbose and (episode + 1) % log_interval == 0:
+                avg_reward = sum(episode_rewards[-log_interval:]) / len(episode_rewards[-log_interval:])
                 print(f"Episode {episode+1:4d} | Reward: {episode_reward:8.4f} | "
-                    f"Avg Reward (5): {avg_reward:8.4f} | LR: {self.get_lr():.6f}")
+                    f"Avg Reward ({log_interval}): {avg_reward:8.4f} | LR: {self.get_lr():.6f}")
+
+            # 定期评估
+            if (episode + 1) % eval_interval == 0 and self.metric_manager is not None:
+                if verbose:
+                    print(f"\n  [评估 Episode {episode + 1}]")
+                self.set_eval_mode()
+                eval_results = self.metric_manager.evaluate(env, self, eval_episodes)
+                if verbose:
+                    for name, result in eval_results.items():
+                        current = result.get('current', 0.0)
+                        print(f"    {name}: {current:.4f}")
+                self.set_train_mode()
 
         return {
             'total_episodes': num_episodes,
             'total_reward': total_reward,
             'avg_reward': total_reward / num_episodes,
             'final_lr': self.get_lr(),
-            'episode_rewards': episode_rewards
+            'metrics': self.metric_manager.get_results() if self.metric_manager else None
         }

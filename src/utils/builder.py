@@ -6,66 +6,7 @@ import torch
 from torch import nn
 import inspect
 from typing import Dict, Any, Optional, Union, List
-from .registry import NN, BACKBONES, HEADS, NETWORK_DISMANTLER, ENVIRONMENTS, ALGORITHMS
-from .buffer import ReplayBuffer, RolloutBuffer
-
-
-def build_replaybuffer(cfg: Dict[str, Any]) -> Union[ReplayBuffer, RolloutBuffer]:
-    """从配置构建缓冲区
-
-    Args:
-        cfg: 缓冲区配置字典
-            - type: 缓冲区类型 ('replay' 或 'rollout')
-            - capacity: 缓冲区容量
-            - n_step: N-step 回报步数（仅 replay）
-            - gamma: 折扣因子（仅 replay，默认从算法获取）
-            - alpha: 优先度指数（仅 replay，默认 0.6）
-            - beta_start: 初始 beta（仅 replay，默认 0.4）
-            - beta_frames: beta 线性增加帧数（仅 replay，默认 100000）
-            - prioritized: 是否使用优先度采样（仅 replay，默认 False）
-
-    Returns:
-        构建的缓冲区实例
-
-    Example:
-        >>> # ReplayBuffer 配置
-        >>> cfg = {
-        ...     'type': 'replay',
-        ...     'capacity': 10000,
-        ...     'n_step': 3,
-        ...     'prioritized': True
-        ... }
-        >>> buffer = build_replaybuffer(cfg)
-
-        >>> # RolloutBuffer 配置
-        >>> cfg = {
-        ...     'type': 'rollout',
-        ...     'capacity': 2048
-        ... }
-        >>> buffer = build_replaybuffer(cfg)
-    """
-    buffer_type = cfg.get('type', 'replay')
-
-    if buffer_type == 'replay':
-        # 构建 ReplayBuffer
-        return ReplayBuffer(
-            capacity=cfg.get('capacity', 10000),
-            n_step=cfg.get('n_step', 1),
-            gamma=cfg.get('gamma', 0.99),
-            alpha=cfg.get('alpha', 0.6),
-            beta_start=cfg.get('beta_start', 0.4),
-            beta_frames=cfg.get('beta_frames', 100000),
-            prioritized=cfg.get('prioritized', False)
-        )
-
-    elif buffer_type == 'rollout':
-        # 构建 RolloutBuffer
-        return RolloutBuffer(
-            capacity=cfg.get('capacity', 2048)
-        )
-
-    else:
-        raise ValueError(f"Unknown buffer type: {buffer_type}. Must be 'replay' or 'rollout'")
+from .registry import NN, BACKBONES, HEADS, NETWORK_DISMANTLER, ENVIRONMENTS, ALGORITHMS, REPLAYBUFFERS, METRICS
 
 
 def build_optimizer(model: torch.nn.Module, cfg: Dict[str, Any]) -> torch.optim.Optimizer:
@@ -87,7 +28,7 @@ def build_optimizer(model: torch.nn.Module, cfg: Dict[str, Any]) -> torch.optim.
         >>> optimizer = build_optimizer(model, optimizer_cfg)
     """
     optimizer_type = cfg.get('type', 'Adam')
-    lr = float(cfg.get('lr', 1e-4))
+    lr = cfg.get('lr', 1e-4)
     weight_decay = cfg.get('weight_decay', 0)
 
     # 移除 type, lr, weight_decay 键
@@ -457,6 +398,12 @@ def build_environment(cfg: Dict, default_args: Dict = None):
 
         return VectorizedEnv.from_graph_list(env_class, graph_list, common_kwargs)
     
+    if cfg.get('graph_files_list', []):
+        from networkx import read_edgelist
+        graph_list = [read_edgelist(file, nodetype=int) for file in cfg.get('graph_files_list', [])]
+        common_kwargs = cfg.get('common_kwargs', {})
+        return VectorizedEnv.from_graph_list(env_class, graph_list, common_kwargs)
+
     if cfg.get('env_kwargs_list', []):
         from ..environments import VectorizedEnv
         env_kwargs_list = cfg.get('env_kwargs_list', [])
@@ -469,7 +416,9 @@ def build_environment(cfg: Dict, default_args: Dict = None):
 
     if cfg.get('graph') is None:
         from networkx import barabasi_albert_graph
-        cfg['graph'] = barabasi_albert_graph(50, 3)
+        from random import randint
+        n = randint(40, 60)
+        cfg['graph'] = barabasi_albert_graph(n, 3)
 
     return build_from_cfg(cfg, ENVIRONMENTS, default_args)
 
@@ -486,4 +435,65 @@ def build_algorithm(cfg: Union[Dict, List], default_args: Dict = None):
     if isinstance(cfg, list):
         return [build_from_cfg(_cfg, ALGORITHMS, default_args) for _cfg in cfg]
     return build_from_cfg(cfg, ALGORITHMS, default_args)
+
+def build_replaybuffer(cfg: Union[Dict, List], default_args: Dict = None):
+    """从配置构建经验缓冲区
+
+    Args:
+        cfg: 指标配置，可以是字典或字典列表
+        default_args: 默认参数
+
+    Returns:
+        构建的经验缓冲区实例
+    """
+    if isinstance(cfg, list):
+        return [build_from_cfg(_cfg, REPLAYBUFFERS, default_args) for _cfg in cfg]
+    return build_from_cfg(cfg, REPLAYBUFFERS, default_args)
+
+def build_metric(cfg: Union[Dict, List], default_args: Dict = None):
+    """从配置构建指标
+
+    Args:
+        cfg: 指标配置，可以是字典或字典列表
+        default_args: 默认参数
+
+    Returns:
+        构建的指标实例或实例列表
+    """
+    if isinstance(cfg, list):
+        return [build_from_cfg(_cfg, METRICS, default_args) for _cfg in cfg]
+    return build_from_cfg(cfg, METRICS, default_args)
+
+
+def build_metric_manager(cfg: Dict = None):
+    """从配置构建指标管理器
+
+    Args:
+        cfg: 指标管理器配置，格式为:
+            {
+                'metrics': [  # 指标列表
+                    {'type': 'AverageReward', 'max_history': 100},
+                    {'type': 'SuccessRate', 'threshold': 0.8}
+                ],
+                'save_dir': './logs',  # 可选
+                'log_interval': 100  # 可选
+            }
+            如果 cfg 为 None，返回 None
+
+    Returns:
+        MetricManager 实例或 None
+    """
+    if cfg is None:
+        return None
+
+    from ..metrics.manager import MetricManager
+
+    metrics_cfg = cfg.get('metrics', [])
+    metrics = [build_metric(m_cfg) for m_cfg in metrics_cfg] if metrics_cfg else []
+
+    return MetricManager(
+        metrics=metrics,
+        save_dir=cfg.get('save_dir'),
+        log_interval=cfg.get('log_interval', 100)
+    )
 

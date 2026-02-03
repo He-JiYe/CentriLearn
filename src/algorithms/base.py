@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, Union
 import torch
 import torch.nn as nn
-from src.utils import build_optimizer, build_scheduler
+from src.utils import build_optimizer, build_scheduler, build_replaybuffer, build_metric_manager
 
 
 class BaseAlgorithm(ABC):
@@ -18,6 +18,8 @@ class BaseAlgorithm(ABC):
         model: 模型实例或模型参数
         optimizer: 优化器
         scheduler: 学习率调度器（可选）
+        replaybuffer: 经验回放缓冲区
+        metric_manager: 指标管理器（可选）
         device: 运行设备
         training_step: 当前训练步数
         model_cfg: 模型配置
@@ -27,6 +29,8 @@ class BaseAlgorithm(ABC):
                  model: Union[nn.Module, Dict[str, Any]],
                  optimizer_cfg: Dict[str, Any],
                  scheduler_cfg: Optional[Dict[str, Any]] = None,
+                 replaybuffer_cfg: Optional[Dict[str, Any]] = None,
+                 metric_manager_cfg: Optional[Dict[str, Any]] = None,
                  device: str = 'cpu'):
         """初始化算法
 
@@ -35,6 +39,8 @@ class BaseAlgorithm(ABC):
                    如果是字典，将自动构建模型
             optimizer_cfg: 优化器配置，例如 {'type': 'Adam', 'lr': 1e-4}
             scheduler_cfg: 学习率调度器配置，例如 {'type': 'StepLR', 'step_size': 100}
+            replaybuffer_cfg: 经验回放缓冲区配置
+            metric_manager: 指标管理器配置（可选）
             device: 运行设备
         """
         self.device = device
@@ -48,9 +54,11 @@ class BaseAlgorithm(ABC):
         else:
             raise TypeError(f"model 必须是 nn.Module 或 Dict，当前类型: {type(model)}")
 
-        # 构建优化器和调度器
+        # 构建优化器、调度器和指标管理器
         self.optimizer = build_optimizer(self.model, optimizer_cfg)
         self.scheduler = build_scheduler(self.optimizer, scheduler_cfg)
+        self.replay_buffer = build_replaybuffer(replaybuffer_cfg)
+        self.metric_manager = build_metric_manager(metric_manager_cfg)
 
         # 训练状态
         self.training_step = 0

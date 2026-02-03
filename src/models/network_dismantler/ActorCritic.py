@@ -40,7 +40,7 @@ class ActorCritic(nn.Module):
         # Build actor head (policy)
         if actor_head_cfg is None:
             actor_head_cfg = {
-                'type': 'LogitHead',
+                'type': 'PolicyHead',
                 'in_channels': self.output_dim,
                 'hidden_layers': [1],
             }

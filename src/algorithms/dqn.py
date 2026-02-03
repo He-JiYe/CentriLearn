@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, Tuple, Union
 import random
 import numpy as np
 from .base import BaseAlgorithm
-from src.utils import build_network_dismantler, ReplayBuffer, ALGORITHMS
+from src.utils import build_network_dismantler, ALGORITHMS
 
 @ALGORITHMS.register_module()
 class DQN(BaseAlgorithm):
@@ -21,7 +21,8 @@ class DQN(BaseAlgorithm):
         model: Q-network 模型实例 或 模型配置字典
         optimizer_cfg: 优化器配置
         scheduler_cfg: 学习率调度器配置
-        replay_buffer: 经验回放缓冲区引用
+        replaybuffer_cfg: 经验回放缓冲区配置
+        metric_manager_cfg: 指标管理器配置
         dqn_cfg: DQN算法配置
         device: 运行设备
     """
@@ -30,7 +31,8 @@ class DQN(BaseAlgorithm):
                  model: Union[nn.Module, Dict[str, Any]],
                  optimizer_cfg: Optional[Dict[str, Any]] = None,
                  scheduler_cfg: Optional[Dict[str, Any]] = None,
-                 replaybuffer: ReplayBuffer = None,
+                 replaybuffer_cfg: Optional[Dict[str, Any]] = None,
+                 metric_manager_cfg: Optional[Dict[str, Any]] = None,
                  algo_cfg: Optional[Dict[str, Any]] = None,
                  device: str = 'cpu'):
         """初始化 DQN 算法"""
@@ -42,7 +44,7 @@ class DQN(BaseAlgorithm):
         self.tau = algo_cfg.get('tau', 0.005)
         
         # 调用父类初始化（构建主模型）
-        super().__init__(model, optimizer_cfg, scheduler_cfg, device)
+        super().__init__(model, optimizer_cfg, scheduler_cfg, replaybuffer_cfg, metric_manager_cfg, device)
 
         # 构建目标网络
         if isinstance(model, nn.Module):
@@ -54,9 +56,6 @@ class DQN(BaseAlgorithm):
 
         self.target_model.eval()
         self.target_model.load_state_dict(self.model.state_dict())
-        
-        # 经验回放缓冲区
-        self.replay_buffer = replaybuffer
     
     def _build_model(self, model_cfg: Dict[str, Any]) -> nn.Module:
         """从配置构建模型
@@ -264,46 +263,79 @@ class DQN(BaseAlgorithm):
         """
         # 获取训练参数
         batch_size = training_cfg.get('batch_size', 32)
-        update_freq = training_cfg.get('update_freq', 4)
-        num_steps = training_cfg.get('num_steps', 10000)
+        max_steps = training_cfg.get('max_steps', 1000)
+        num_episodes = training_cfg.get('num_episodes', 1000)
+        log_interval = training_cfg.get('log_interval', 10)
+        eval_interval = training_cfg.get('eval_interval', 50)
+        eval_episodes = training_cfg.get('eval_episodes', 5)
 
         # 初始化
         state = env.reset()
         total_reward = 0
+        episode_rewards = []
 
         if verbose:
             print("\n" + "=" * 60)
             print("开始 DQN 训练...")
             print("=" * 60)
 
-        for step in range(num_steps):
-            # 选择动作
-            action, epsilon = self.select_action(state)
+        for episode in range(num_episodes):
+            state = env.reset()
+            episode_reward = 0
+            
+            for step in range(max_steps):
+                action, epsilon = self.select_action(state)
+                next_state, reward, done, info = env.step(action, state['mapping'])
+                episode_reward += reward
+                self.collect_experience(state, action, reward, next_state, done)
 
-            # 执行动作
-            next_state, reward, done, _ = env.step(action, state['mapping'])
-            total_reward += reward
+                if self.metric_manager is not None:
+                    self.metric_manager.update(
+                        state, action, reward, next_state, done,
+                        {'epsilon': epsilon, 'lcc_size': env.lcc_size[-1], 'num_nodes': env.num_nodes}
+                    )
 
-            # 收集经验
-            self.collect_experience(state, action, reward, next_state, done)
+                state = next_state if not done else env.reset()
 
-            # 更新状态
-            state = next_state if not done else env.reset()
+                # 更新模型
+                if len(self.replay_buffer) >= batch_size:
+                    metrics = self.update(batch_size)
+                    self.step_scheduler()
 
-            # 更新模型
-            if step % update_freq == 0 and len(self.replay_buffer) >= batch_size:
-                metrics = self.update(batch_size)
-                self.step_scheduler()
+                if done:
+                    break
+            
+            total_reward += episode_reward
+            episode_rewards.append(episode_reward)
 
-                # 打印训练日志
-                if verbose and step % 100 == 0:
-                    print(f"Step {step:6d} | Epsilon: {epsilon:.3f} | "
-                        f"Loss: {metrics['loss']:.4f} | LR: {self.get_lr():.6f} | "
-                        f"Avg Reward: {total_reward/(step+1):.4f}")
+            # 打印训练日志
+            if verbose and (episode + 1) % log_interval == 0:
+                avg_reward = sum(episode_rewards[-log_interval:]) / len(episode_rewards[-log_interval:])
+                print(f"Episodes: {(episode + 1):6d} | Epsilon: {epsilon:.3f} | "
+                    f"Loss: {metrics['loss']:.4f} | LR: {self.get_lr():.6f} | "
+                    f"Avg Reward ({log_interval}): {avg_reward:.4f}")
+
+                # 打印指标信息
+                if self.metric_manager is not None:
+                    self.metric_manager.log(prefix="  ")
+
+            # 定期评估
+            if (episode + 1) % eval_interval == 0 and self.metric_manager is not None:
+                if verbose:
+                    print(f"\n  [评估 Episode {episode + 1}]")
+                self.set_eval_mode()
+                eval_results = self.metric_manager.evaluate(env, self, eval_episodes)
+                if verbose:
+                    for name, result in eval_results.items():
+                        current = result.get('current', 0.0)
+                        print(f"    {name}: {current:.4f}")
+                self.set_train_mode()
+
 
         return {
-            'total_steps': num_steps,
+            'total_episodes': num_episodes,
             'total_reward': total_reward,
-            'avg_reward': total_reward / num_steps,
-            'final_lr': self.get_lr()
+            'avg_reward': total_reward / num_episodes,
+            'final_lr': self.get_lr(),
+            'metrics': self.metric_manager.get_results() if self.metric_manager else None
         }
