@@ -4,6 +4,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.7.0-orange.svg)](https://pytorch.org/)
+[![Version](https://img.shields.io/badge/version-v0.1.0--alpha-blue)](https://github.com/He-JiYe/CentriLearn/releases/tag/v0.1.0-alpha)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![中文文档](https://img.shields.io/badge/README-中文-blue.svg)](README_CN.md)  
 
