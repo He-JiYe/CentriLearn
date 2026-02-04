@@ -8,6 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+uv.lock
 
 # data files
 data/
@@ -15,3 +16,26 @@ data/
 # notebook files
 notebooks/
 
+# tests models
+tests/
+.pytest_cache/
+
+# Checkpoints and models
+ckpt/
+*.pth
+*.ckpt
+*.pt
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
