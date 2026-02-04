@@ -1,32 +1,7 @@
 [project]
 name = "centrilearn"
-version = "0.1.0-alpha"
-description = "CentriLearn: A Reinforcement Learning Framework for Complex Networks Tasks"
+version = "0.1.0"
+description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-authors = [
-    {name = "CentriLearn Team"}
-]
-keywords = ["reinforcement-learning", "graph-neural-networks", "network-dismantling"]
-
-dependencies = [
-    "torch>=2.7.0",
-    "torch-geometric==2.6.1",
-    "torch-scatter==2.1.2",
-    "networkx==3.4.2",
-    "numpy==2.2.5",
-    "pyyaml==6.0.2",
-    "tqdm==4.65.2"
-]
-
-[tool.uv]
-prerelease = "allow"
-
-[tool.setuptools]
-packages = ["centrilearn"]
-
-[project.urls]
-Homepage = "https://github.com/He-JiYe/CentriLearn"
-Documentation = "https://github.com/He-JiYe/CentriLearn#readme"
-Repository = "https://github.com/He-JiYe/CentriLearn.git"
-Issues = "https://github.com/He-JiYe/CentriLearn/issues"
+dependencies = []
