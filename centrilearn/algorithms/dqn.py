@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Batch
+from torch_scatter import scatter_max
 
 from centrilearn.utils import ALGORITHMS, build_network_dismantler
 
@@ -50,6 +51,8 @@ class DQN(BaseAlgorithm):
         self.epsilon_end = algo_cfg.get("epsilon_end", 0.01)
         self.epsilon_decay = algo_cfg.get("epsilon_decay", 10000)
         self.tau = algo_cfg.get("tau", 0.005)
+        self.grad_norm = algo_cfg.get("grad_norm", 1.0)
+        self.update_freq = algo_cfg.get("update_freq", 4)
         self.rcst_coef = algo_cfg.get("rcst_coef", 0.0001)
 
         # 调用父类初始化（构建主模型）
@@ -177,31 +180,16 @@ class DQN(BaseAlgorithm):
 
         # 目标 Q 值
         with torch.no_grad():
-            temp_value = self.model(
-                {
-                    "x": next_state_info.x,
-                    "edge_index": next_state_info.edge_index,
-                    "batch": next_state_info.get(
-                        "batch",
-                        torch.zeros(next_state_info.x.shape[0], dtype=torch.long),
-                    ),
-                    "component": next_state_info.get("component"),
-                }
-            )
-            next_actions = temp_value["q_values"].squeeze(-1).argmax(dim=0)
-
+            next_state_batch = next_state_info.get('batch', torch.zeros(next_state_info.x.shape[0], dtype=torch.long, device=self.device))
             next_output = self.target_model(
                 {
                     "x": next_state_info.x,
                     "edge_index": next_state_info.edge_index,
-                    "batch": next_state_info.get(
-                        "batch",
-                        torch.zeros(next_state_info.x.shape[0], dtype=torch.long),
-                    ),
+                    "batch": next_state_batch,
                     "component": next_state_info.get("component"),
                 }
             )
-            next_q_values = next_output["q_values"].squeeze(-1)[next_actions]
+            next_q_values = scatter_max(next_output["q_values"].squeeze(-1), next_state_batch)[0]
             target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
 
         # 计算损失
@@ -215,6 +203,8 @@ class DQN(BaseAlgorithm):
         # 反向传播
         self.optimizer.zero_grad()
         loss.backward()
+        # 添加梯度裁剪
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_norm)
         self.optimizer.step()
 
         # 更新优先度（如果使用优先度采样）
@@ -224,8 +214,9 @@ class DQN(BaseAlgorithm):
                 priorities = td_errors.cpu().numpy()
             self.replay_buffer.update_priorities(indices, priorities)
 
-        # 更新目标网络
-        self._update_target_network()
+        # 每N步更新目标网络
+        if self.training_step % self.update_freq == 0:
+            self._update_target_network()
 
         self.training_step += 1
 

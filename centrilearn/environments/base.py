@@ -184,9 +184,11 @@ class BaseEnv(ABC):
         parent = torch.arange(num_nodes, device=self.device)
 
         def find(x):
-            if parent[x] != x:
-                parent[x] = find(parent[x])
-            return parent[x]
+            # 迭代实现路径压缩
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
 
         def union(x, y):
             root_x = find(x)
