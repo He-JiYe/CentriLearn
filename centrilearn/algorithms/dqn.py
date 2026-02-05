@@ -153,16 +153,15 @@ class DQN(BaseAlgorithm):
         # 前向传播
         self.set_train_mode()
 
-        # 计算当前 Q 值
-        state_info = Batch.from_data_list([state["pyg_data"] for state in states]).to(
-            self.device
-        )
-        actions = torch.LongTensor(actions).to(self.device)
-        rewards = torch.FloatTensor(rewards).to(self.device)
+        # 批量处理图数据，减少内存分配
+        state_info = Batch.from_data_list([state["pyg_data"] for state in states]).to(self.device)
         next_state_info = Batch.from_data_list(
             [next_state["pyg_data"] for next_state in next_states]
         ).to(self.device)
-        dones = torch.LongTensor(dones).to(self.device)
+
+        actions = torch.as_tensor(actions, dtype=torch.long, device=self.device)
+        rewards = torch.as_tensor(rewards, dtype=torch.float, device=self.device)
+        dones = torch.as_tensor(dones, dtype=torch.long, device=self.device)
 
         # 当前 Q 值
         with torch.set_grad_enabled(True):
@@ -197,7 +196,7 @@ class DQN(BaseAlgorithm):
 
         # 如果使用优先度采样，应用重要性采样权重
         if weights is not None:
-            weights_tensor = torch.FloatTensor(weights).to(self.device)
+            weights_tensor = torch.as_tensor(weights, dtype=torch.float, device=self.device)
             loss = (loss * weights_tensor).mean()
 
         # 反向传播

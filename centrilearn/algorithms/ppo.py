@@ -178,13 +178,11 @@ class PPO(BaseAlgorithm):
                 state_info = Batch.from_data_list(
                     [i["pyg_data"] for i in batch["states"]]
                 ).to(self.device)
-                actions = torch.LongTensor([batch["actions"]]).to(self.device)
-                old_log_probs = torch.FloatTensor([batch["old_log_probs"]]).to(
-                    self.device
-                )
-                returns = torch.FloatTensor([batch["returns"]]).to(self.device)
-                advantages = torch.FloatTensor([batch["advantages"]]).to(self.device)
-                old_values = torch.FloatTensor([batch["old_values"]]).to(self.device)
+                actions = torch.as_tensor(batch["actions"], dtype=torch.long, device=self.device)
+                old_log_probs = torch.as_tensor(batch["old_log_probs"], dtype=torch.float, device=self.device)
+                returns = torch.as_tensor(batch["returns"], dtype=torch.float, device=self.device)
+                advantages = torch.as_tensor(batch["advantages"], dtype=torch.float, device=self.device)
+                old_values = torch.as_tensor(batch["old_values"], dtype=torch.float, device=self.device)
 
                 # 前向传播
                 batch_indices = state_info.get(
