@@ -1,3 +1,5 @@
+from typing import Tuple
+
 """
 强化学习算法基类
 定义算法的标准接口和通用功能
@@ -33,9 +35,9 @@ class BaseAlgorithm(ABC):
         self,
         model: Union[nn.Module, Dict[str, Any]],
         optimizer_cfg: Dict[str, Any],
-        scheduler_cfg: Optional[Dict[str, Any]] = None,
-        replaybuffer_cfg: Optional[Dict[str, Any]] = None,
-        metric_manager_cfg: Optional[Dict[str, Any]] = None,
+        scheduler_cfg: Dict[str, Any],
+        replaybuffer_cfg: Dict[str, Any],
+        metric_manager_cfg: Dict[str, Any],
         device: str = "cpu",
     ):
         """初始化算法
@@ -105,7 +107,9 @@ class BaseAlgorithm(ABC):
         pass
 
     @abstractmethod
-    def select_action(self, state: Dict[str, Any], **kwargs) -> Any:
+    def select_action(
+        self, state: Dict[str, Any], **kwargs
+    ) -> Tuple[Union[torch.Tensor, int], ...]:
         """选择动作
 
         Args:
@@ -128,11 +132,11 @@ class BaseAlgorithm(ABC):
         """
         pass
 
-    def set_train_mode(self):
+    def set_train_mode(self) -> None:
         """设置为训练模式"""
         self.model.train()
 
-    def set_eval_mode(self):
+    def set_eval_mode(self) -> None:
         """设置为评估模式"""
         self.model.eval()
 
@@ -198,7 +202,7 @@ class BaseAlgorithm(ABC):
         """
         return self.optimizer.param_groups[0]["lr"]
 
-    def get_model(self):
+    def get_model(self) -> nn.Module:
         """获取模型"""
         return self.model
 

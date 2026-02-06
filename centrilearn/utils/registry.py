@@ -44,7 +44,7 @@ class Registry:
             Type: 对应的类
         """
         if key not in self._module_dict:
-            raise KeyError(f"{key} is not in the {self._name} registry")
+            raise KeyError(f"{key} not found in {self._name}")
         return self._module_dict[key]
 
     def _register_module(

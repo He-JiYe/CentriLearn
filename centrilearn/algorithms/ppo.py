@@ -35,11 +35,11 @@ class PPO(BaseAlgorithm):
     def __init__(
         self,
         model: Union[nn.Module, Dict[str, Any]],
-        optimizer_cfg: Optional[Dict[str, Any]] = None,
+        optimizer_cfg: Dict[str, Any],
+        replaybuffer_cfg: Dict[str, Any],
+        algo_cfg: Dict[str, Any],
         scheduler_cfg: Optional[Dict[str, Any]] = None,
-        replaybuffer_cfg: Optional[Dict[str, Any]] = None,
         metric_manager_cfg: Optional[Dict[str, Any]] = None,
-        algo_cfg: Optional[Dict[str, Any]] = None,
         device: str = "cpu",
     ):
         """初始化 PPO 算法"""
@@ -75,7 +75,7 @@ class PPO(BaseAlgorithm):
 
     def select_action(
         self, state: Dict[str, Any], deterministic: bool = False
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[Union[torch.Tensor, int], ...]:
         """选择动作
 
         Args:
@@ -178,11 +178,21 @@ class PPO(BaseAlgorithm):
                 state_info = Batch.from_data_list(
                     [i["pyg_data"] for i in batch["states"]]
                 ).to(self.device)
-                actions = torch.as_tensor(batch["actions"], dtype=torch.long, device=self.device)
-                old_log_probs = torch.as_tensor(batch["old_log_probs"], dtype=torch.float, device=self.device)
-                returns = torch.as_tensor(batch["returns"], dtype=torch.float, device=self.device)
-                advantages = torch.as_tensor(batch["advantages"], dtype=torch.float, device=self.device)
-                old_values = torch.as_tensor(batch["old_values"], dtype=torch.float, device=self.device)
+                actions = torch.as_tensor(
+                    batch["actions"], dtype=torch.long, device=self.device
+                )
+                old_log_probs = torch.as_tensor(
+                    batch["old_log_probs"], dtype=torch.float, device=self.device
+                )
+                returns = torch.as_tensor(
+                    batch["returns"], dtype=torch.float, device=self.device
+                )
+                advantages = torch.as_tensor(
+                    batch["advantages"], dtype=torch.float, device=self.device
+                )
+                old_values = torch.as_tensor(
+                    batch["old_values"], dtype=torch.float, device=self.device
+                )
 
                 # 前向传播
                 batch_indices = state_info.get(
@@ -272,7 +282,7 @@ class PPO(BaseAlgorithm):
 
     def get_action_value(
         self, state: Dict[str, Any]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[Union[torch.Tensor, int], ...]:
         """获取动作和价值（用于推理）
 
         Args:
@@ -322,6 +332,8 @@ class PPO(BaseAlgorithm):
         is_eval = training_cfg.get("is_eval", False)
         eval_interval = training_cfg.get("eval_interval", 50)
         eval_episodes = training_cfg.get("eval_episodes", 5)
+        save_interval = training_cfg.get("save_interval", 100)
+        save_path = training_cfg.get("save_path", "checkpoints")
 
         # 初始化
         total_reward = 0
@@ -403,6 +415,18 @@ class PPO(BaseAlgorithm):
                         current = result.get("current", 0.0)
                         print(f"    {name}: {current:.4f}")
                 self.set_train_mode()
+
+            # 定期保存模型参数
+            if (episode + 1) % save_interval == 0:
+                import os
+
+                os.makedirs(save_path, exist_ok=True)
+                checkpoint_path = os.path.join(
+                    save_path, f"checkpoint_episode_{episode+1}.pth"
+                )
+                self.save_checkpoint(checkpoint_path, episode=episode + 1)
+                if verbose:
+                    print(f"  [保存模型参数] 检查点已保存到: {checkpoint_path}")
 
         return {
             "total_episodes": num_episodes,

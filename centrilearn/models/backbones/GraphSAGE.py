@@ -115,7 +115,6 @@ class GraphSAGE(BasicGNN):
         batch_size = batch.max().item() + 1 if batch is not None else 1
         batch_indices = torch.arange(batch_size, device=x.device)
 
-
         for i, (conv, norm) in enumerate(zip(self.convs, self.norms)):
             # Update the graph embeddings first
             current_graph_embed = self._pool_graph(x, batch)

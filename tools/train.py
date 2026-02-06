@@ -137,7 +137,10 @@ def parse_args():
 
     # Checkpoint 相关
     parser.add_argument(
-        "--ckpt_dir", type=str, default="./ckpt", help="模型保存目录 (默认: ./ckpt)"
+        "--ckpt_dir",
+        type=str,
+        default="./checkpoints",
+        help="模型保存目录 (默认: ./checkpoints)",
     )
     parser.add_argument(
         "--resume", type=str, default=None, help="从指定 checkpoint 恢复训练"
@@ -195,9 +198,11 @@ def main():
     # 4. 设置性能优化
     if verbose:
         print(f"\n[性能优化] 启用 PyTorch 性能优化配置")
-    
+
     try:
-        from centrilearn.utils.performance import setup_performance_optimizations
+        from centrilearn.utils.performance import \
+            setup_performance_optimizations
+
         setup_performance_optimizations(
             device=config["algorithm"].get("device", "cuda"),
             benchmark=True,

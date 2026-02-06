@@ -28,10 +28,10 @@ class BaseEnv(ABC):
 
     def __init__(
         self,
-        graph: nx.Graph = None,
+        graph: Optional[nx.Graph] = None,
         node_features: str = "ones",
         synth_type: str = "ba",
-        synth_args: Dict[str, Any] = None,
+        synth_args: Optional[Dict[str, Any]] = None,
         use_component: bool = False,
         is_undirected: bool = True,
         device: str = "cpu",
@@ -98,7 +98,7 @@ class BaseEnv(ABC):
         return self.get_state()
 
     @abstractmethod
-    def _reset(self):
+    def _reset(self) -> None:
         """
         重置剩余统计信息
         """

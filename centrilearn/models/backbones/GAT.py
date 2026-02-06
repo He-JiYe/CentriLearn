@@ -34,10 +34,10 @@ class GAT(BasicGNN):
         in_channels: int,
         hidden_channels: int,
         num_layers: int,
-        output_dim: int = None,
+        output_dim: Union[int, None] = None,
         aggr: str = "mean",
         graph_aggr: str = "add",
-        norm: str = None,
+        norm: Union[str, None] = None,
         dropout: float = 0.0,
         **kwargs,
     ):
@@ -125,8 +125,13 @@ class GAT(BasicGNN):
         assert info.get("edge_index") is not None, "Edge indices are required"
         assert info.get("batch") is not None, "Batch assignment is required"
 
-        x, edge_index, batch, graph_embed = info["x"], info["edge_index"], info["batch"], None
-        
+        x, edge_index, batch, graph_embed = (
+            info["x"],
+            info["edge_index"],
+            info["batch"],
+            None,
+        )
+
         batch_size = batch.max().item() + 1 if batch is not None else 1
         batch_indices = torch.arange(batch_size, device=x.device)
 
@@ -176,6 +181,6 @@ class GAT(BasicGNN):
         return info
 
     @property
-    def output_dim(self):
+    def output_dim(self) -> int:
         """Output channels dimension."""
-        return self._output_dim
+        return self.out_channels

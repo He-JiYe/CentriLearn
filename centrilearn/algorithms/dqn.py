@@ -37,11 +37,11 @@ class DQN(BaseAlgorithm):
     def __init__(
         self,
         model: Union[nn.Module, Dict[str, Any]],
-        optimizer_cfg: Optional[Dict[str, Any]] = None,
+        optimizer_cfg: Dict[str, Any],
+        replaybuffer_cfg: Dict[str, Any],
+        algo_cfg: Dict[str, Any],
         scheduler_cfg: Optional[Dict[str, Any]] = None,
-        replaybuffer_cfg: Optional[Dict[str, Any]] = None,
         metric_manager_cfg: Optional[Dict[str, Any]] = None,
-        algo_cfg: Optional[Dict[str, Any]] = None,
         device: str = "cpu",
     ):
         """初始化 DQN 算法"""
@@ -96,7 +96,7 @@ class DQN(BaseAlgorithm):
 
     def select_action(
         self, state: Dict[str, Any], epsilon: Optional[float] = None
-    ) -> Tuple[torch.Tensor, float]:
+    ) -> Tuple[Union[torch.Tensor, int], ...]:
         """选择动作（epsilon-greedy 策略）
 
         Args:
@@ -154,7 +154,9 @@ class DQN(BaseAlgorithm):
         self.set_train_mode()
 
         # 批量处理图数据，减少内存分配
-        state_info = Batch.from_data_list([state["pyg_data"] for state in states]).to(self.device)
+        state_info = Batch.from_data_list([state["pyg_data"] for state in states]).to(
+            self.device
+        )
         next_state_info = Batch.from_data_list(
             [next_state["pyg_data"] for next_state in next_states]
         ).to(self.device)
@@ -179,7 +181,12 @@ class DQN(BaseAlgorithm):
 
         # 目标 Q 值
         with torch.no_grad():
-            next_state_batch = next_state_info.get('batch', torch.zeros(next_state_info.x.shape[0], dtype=torch.long, device=self.device))
+            next_state_batch = next_state_info.get(
+                "batch",
+                torch.zeros(
+                    next_state_info.x.shape[0], dtype=torch.long, device=self.device
+                ),
+            )
             next_output = self.target_model(
                 {
                     "x": next_state_info.x,
@@ -188,7 +195,9 @@ class DQN(BaseAlgorithm):
                     "component": next_state_info.get("component"),
                 }
             )
-            next_q_values = scatter_max(next_output["q_values"].squeeze(-1), next_state_batch)[0]
+            next_q_values = scatter_max(
+                next_output["q_values"].squeeze(-1), next_state_batch
+            )[0]
             target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
 
         # 计算损失
@@ -196,7 +205,9 @@ class DQN(BaseAlgorithm):
 
         # 如果使用优先度采样，应用重要性采样权重
         if weights is not None:
-            weights_tensor = torch.as_tensor(weights, dtype=torch.float, device=self.device)
+            weights_tensor = torch.as_tensor(
+                weights, dtype=torch.float, device=self.device
+            )
             loss = (loss * weights_tensor).mean()
 
         # 反向传播
@@ -225,7 +236,7 @@ class DQN(BaseAlgorithm):
             "training_step": self.training_step,
         }
 
-    def _update_target_network(self):
+    def _update_target_network(self) -> None:
         """软更新目标网络"""
         for target_param, param in zip(
             self.target_model.parameters(), self.model.parameters()
@@ -309,6 +320,8 @@ class DQN(BaseAlgorithm):
         is_eval = training_cfg.get("is_eval", False)
         eval_interval = training_cfg.get("eval_interval", 50)
         eval_episodes = training_cfg.get("eval_episodes", 5)
+        save_interval = training_cfg.get("save_interval", 100)
+        save_path = training_cfg.get("save_path", "checkpoints")
 
         # 初始化
         state = env.reset()
@@ -390,6 +403,18 @@ class DQN(BaseAlgorithm):
                         current = result.get("current", 0.0)
                         print(f"    {name}: {current:.4f}")
                 self.set_train_mode()
+
+            # 定期保存模型参数
+            if (episode + 1) % save_interval == 0:
+                import os
+
+                os.makedirs(save_path, exist_ok=True)
+                checkpoint_path = os.path.join(
+                    save_path, f"checkpoint_episode_{episode+1}.pth"
+                )
+                self.save_checkpoint(checkpoint_path, episode=episode + 1)
+                if verbose:
+                    print(f"  [保存模型参数] 检查点已保存到: {checkpoint_path}")
 
         return {
             "total_episodes": num_episodes,

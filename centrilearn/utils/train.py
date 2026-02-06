@@ -68,7 +68,7 @@ def train_from_cfg(
 
     # 1. 构建环境
     if verbose:
-        print(f"\n[1/4] 构建环境: {env_cfg.get('type', 'unknown')}")
+        print(f"\n[1/5] 构建环境: {env_cfg.get('type', 'unknown')}")
 
     # 延迟导入构建函数
     from centrilearn.utils.builder import build_environment
@@ -80,7 +80,7 @@ def train_from_cfg(
 
     # 3. 构建算法
     if verbose:
-        print(f"\n[3/4] 构建算法: {algorithm_cfg['type']}")
+        print(f"\n[2/5] 构建算法: {algorithm_cfg['type']}")
         print(f"      - 模型类型: {algorithm_cfg.get('model', 'unknown')}")
         print(
             f"      - 优化器: {algorithm_cfg.get('optimizer_cfg', {}).get('type')} (lr={algorithm_cfg.get('optimizer_cfg', {}).get('lr', 'N/A')})"
@@ -102,21 +102,44 @@ def train_from_cfg(
     if verbose:
         print(f"      [OK] 算法构建完成: {algorithm}")
 
-    # 4. 执行训练
+    # 4. 检查是否需要恢复训练
+    resume_from = training_cfg.get("resume")
+    if resume_from:
+        if verbose:
+            print(f"\n[3/5] 恢复训练...")
+            print(f"      从检查点恢复: {resume_from}")
+
+        # 加载检查点
+        try:
+            checkpoint = algorithm.load_checkpoint(resume_from)
+            if verbose:
+                print(f"      [OK] 检查点加载成功")
+                print(f"      训练步数: {algorithm.training_step}")
+                if "episode" in checkpoint:
+                    print(f"      恢复episode: {checkpoint['episode']}")
+        except Exception as e:
+            if verbose:
+                print(f"      [警告] 检查点加载失败: {e}")
+                print(f"      将从头开始训练")
+
+    # 5. 执行训练
     final_training_cfg = {**training_cfg, **kwargs}
 
     if verbose:
-        print(f"\n[4/4] 开始训练...")
+        if not resume_from:
+            print(f"\n[4/5] 开始训练...")
+        else:
+            print(f"\n[4/5] 继续训练...")
         print(f"      训练配置: {final_training_cfg}")
 
     results = algorithm._run_training_loop(env, final_training_cfg)
 
-    # 5. 训练完成
+    # 6. 训练完成
     if verbose:
-        print(f"\n[5/4] 训练完成！")
+        print(f"\n[5/5] 训练完成！")
         print(f"\n训练结果:")
         for key, value in results.items():
-            if key != "episode_rewards":  # 避免打印过长的列表
+            if key not in ["episode_rewards", "metrics"]:  #
                 print(f"  {key}: {value}")
         print("=" * 70 + "\n")
 
