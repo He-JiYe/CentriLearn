@@ -75,8 +75,19 @@ def train_from_cfg(
 
     env = build_environment(env_cfg)
 
+    # 确定环境数量
+    env_num = 1
+    try:
+        # 检查是否为向量化环境
+        from centrilearn.environments import VectorizedEnv
+        if isinstance(env, VectorizedEnv):
+            env_num = env.num_envs
+    except ImportError:
+        pass
+
     if verbose:
         print(f"      [OK] 环境构建完成: {env}")
+        print(f"      环境数量: {env_num}")
 
     # 3. 构建算法
     if verbose:
@@ -96,6 +107,15 @@ def train_from_cfg(
             f"Unsupported algorithm type: {algorithm_cfg['type']}. "
             f"Available algorithms: {list(ALGORITHMS.module_dict.keys())}"
         )
+
+    # 将环境数量传递给算法配置
+    if "replaybuffer_cfg" in algorithm_cfg:
+        # 为 replaybuffer 添加 env_num 参数
+        if isinstance(algorithm_cfg["replaybuffer_cfg"], dict):
+            algorithm_cfg["replaybuffer_cfg"]["env_num"] = env_num
+    if "metric_manager_cfg" in algorithm_cfg:
+        if isinstance(algorithm_cfg["metric_manager_cfg"], dict):
+            algorithm_cfg["metric_manager_cfg"]["num_env"] = env_num
 
     algorithm = build_algorithm(algorithm_cfg)
 

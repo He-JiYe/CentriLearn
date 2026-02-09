@@ -73,20 +73,19 @@ class PPO(BaseAlgorithm):
         """
         return build_network_dismantler(model_cfg)
 
-    def select_action(
-        self, state: Dict[str, Any], deterministic: bool = False
-    ) -> Tuple[Union[torch.Tensor, int], ...]:
-        """选择动作
+    def _select_action_single(self, state: Dict[str, Any], **kwargs) -> Tuple[Union[torch.Tensor, int], ...]:
+        """为单个环境选择动作
 
         Args:
             state: 当前状态
-            deterministic: 是否确定性策略
+            **kwargs: 算法特定的参数（如 deterministic）
 
         Returns:
             action: 选择的动作
             log_prob: 动作对数概率
             value: 状态价值（标量）
         """
+        deterministic = kwargs.get("deterministic", False)
         self.set_eval_mode()
 
         with torch.no_grad():
@@ -120,27 +119,17 @@ class PPO(BaseAlgorithm):
 
         return action.squeeze(), log_prob.squeeze(), value
 
-    def collect_experience(
-        self,
-        state: Dict[str, Any],
-        action: torch.Tensor,
-        log_prob: torch.Tensor,
-        reward: float,
-        done: bool,
-        value: torch.Tensor,
-    ):
-        """收集经验到轨迹缓冲区
+    def _collect_experience_single(self, state: Dict[str, Any], *args, **kwargs):
+        """为单个环境收集经验到轨迹缓冲区
 
         Args:
             state: 当前状态
-            action: 执行的动作
-            log_prob: 动作对数概率
-            reward: 获得的奖励
-            done: 是否终止
-            value: 状态价值估计
+            *args: 其他必需参数（action, log_prob, reward, done, value）
+            **kwargs: 可选参数
         """
+        action, reward, _, done, log_prob, value = args
         self.replay_buffer.push(
-            state, action.item(), log_prob.item(), reward, done, value.item()
+            state, action.item(), reward, done, log_prob.item(), value.item()
         )
 
     def update(self, batch_size: int = 64) -> Dict[str, float]:
@@ -310,130 +299,3 @@ class PPO(BaseAlgorithm):
 
             action = torch.argmax(logit, dim=0)
         return action, value
-
-    def _run_training_loop(
-        self, env: Any, training_cfg: Dict[str, Any], verbose: bool = True
-    ) -> Dict[str, Any]:
-        """PPO 训练循环实现
-
-        Args:
-            env: 环境实例
-            training_cfg: 训练配置
-            verbose: 是否打印日志
-
-        Returns:
-            训练结果字典
-        """
-        # 获取训练参数
-        batch_size = training_cfg.get("batch_size", 64)
-        max_steps = training_cfg.get("max_steps", 1000)
-        num_episodes = training_cfg.get("num_episodes", 100)
-        log_interval = training_cfg.get("log_interval", 10)
-        is_eval = training_cfg.get("is_eval", False)
-        eval_interval = training_cfg.get("eval_interval", 50)
-        eval_episodes = training_cfg.get("eval_episodes", 5)
-        save_interval = training_cfg.get("save_interval", 100)
-        save_path = training_cfg.get("save_path", "checkpoints")
-
-        # 初始化
-        total_reward = 0
-        episode_rewards = []
-
-        if verbose:
-            print("\n" + "=" * 60)
-            print("开始 PPO 训练...")
-            print("=" * 60)
-
-        if self.metric_manager is not None:
-            self.metric_manager.start_timer()
-
-        for episode in range(num_episodes):
-            state = env.reset()
-            episode_reward = 0
-
-            for _ in range(max_steps):
-                # 选择动作
-                action, log_prob, value = self.select_action(state)
-
-                # 执行动作
-                next_state, reward, done, info = env.step(action, state["mapping"])
-                episode_reward += reward
-
-                # 收集经验
-                self.collect_experience(state, action, log_prob, reward, done, value)
-
-                if self.metric_manager is not None:
-                    self.metric_manager.update(
-                        state,
-                        action,
-                        reward,
-                        next_state,
-                        done,
-                        {"lcc_size": env.lcc_size[-1], "num_nodes": env.num_nodes},
-                    )
-
-                # 更新状态
-                state = next_state if not done else env.reset()
-
-                if done:
-                    break
-
-            # 更新模型
-            if len(self.replay_buffer) > 0:
-                metrics = self.update(batch_size)
-                self.step_scheduler(metrics)
-
-            total_reward += episode_reward
-            episode_rewards.append(episode_reward)
-
-            # 打印训练日志
-            if verbose and (episode + 1) % log_interval == 0:
-                avg_reward = sum(episode_rewards[-log_interval:]) / len(
-                    episode_rewards[-log_interval:]
-                )
-                print(
-                    f"Episode {episode+1:4d} | Reward: {episode_reward:8.4f} | "
-                    f"Avg Reward ({log_interval}): {avg_reward:8.4f} | LR: {self.get_lr():.6f}"
-                )
-
-                # 打印指标信息
-                if self.metric_manager is not None:
-                    self.metric_manager.log(prefix="  ")
-
-            # 定期评估
-            if (
-                is_eval
-                and (episode + 1) % eval_interval == 0
-                and self.metric_manager is not None
-            ):
-                if verbose:
-                    print(f"\n  [评估 Episode {episode + 1}]")
-                self.set_eval_mode()
-                eval_results = self.metric_manager.evaluate(env, self, eval_episodes)
-                if verbose:
-                    for name, result in eval_results.items():
-                        current = result.get("current", 0.0)
-                        print(f"    {name}: {current:.4f}")
-                self.set_train_mode()
-
-            # 定期保存模型参数
-            if (episode + 1) % save_interval == 0:
-                import os
-
-                os.makedirs(save_path, exist_ok=True)
-                checkpoint_path = os.path.join(
-                    save_path, f"checkpoint_episode_{episode+1}.pth"
-                )
-                self.save_checkpoint(checkpoint_path, episode=episode + 1)
-                if verbose:
-                    print(f"  [保存模型参数] 检查点已保存到: {checkpoint_path}")
-
-        return {
-            "total_episodes": num_episodes,
-            "total_reward": total_reward,
-            "avg_reward": total_reward / num_episodes,
-            "final_lr": self.get_lr(),
-            "metrics": (
-                self.metric_manager.get_results() if self.metric_manager else None
-            ),
-        }

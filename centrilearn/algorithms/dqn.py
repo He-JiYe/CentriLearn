@@ -94,19 +94,18 @@ class DQN(BaseAlgorithm):
         )
         return epsilon
 
-    def select_action(
-        self, state: Dict[str, Any], epsilon: Optional[float] = None
-    ) -> Tuple[Union[torch.Tensor, int], ...]:
-        """选择动作（epsilon-greedy 策略）
+    def _select_action_single(self, state: Dict[str, Any], **kwargs) -> Tuple[Union[torch.Tensor, int], ...]:
+        """为单个环境选择动作（epsilon-greedy 策略）
 
         Args:
             state: 当前状态
-            epsilon: 探索率（None 则自动计算）
+            **kwargs: 算法特定的参数（如 epsilon）
 
         Returns:
             action: 选择的动作
             epsilon: 使用的探索率
         """
+        epsilon = kwargs.get("epsilon", None)
         if epsilon is None:
             epsilon = self.compute_epsilon()
 
@@ -256,23 +255,15 @@ class DQN(BaseAlgorithm):
         """
         return self.update(batch.get("batch_size", 32))
 
-    def collect_experience(
-        self,
-        state: Dict[str, Any],
-        action: int,
-        reward: float,
-        next_state: Dict[str, Any],
-        done: bool,
-    ):
-        """收集经验到回放缓冲区
+    def _collect_experience_single(self, state: Dict[str, Any], *args, **kwargs):
+        """为单个环境收集经验到回放缓冲区
 
         Args:
             state: 当前状态
-            action: 执行的动作
-            reward: 获得的奖励
-            next_state: 下一状态
-            done: 是否终止
+            *args: 其他必需参数（action, reward, next_state, done, epsilon）
+            **kwargs: 可选参数
         """
+        action, reward, next_state, done, *extra_info = args
         self.replay_buffer.push(state, action, reward, next_state, done)
 
     def get_q_values(self, state: Dict[str, Any]) -> torch.Tensor:
@@ -298,130 +289,3 @@ class DQN(BaseAlgorithm):
                 }
             )
             return output["q_values"].squeeze(-1)
-
-    def _run_training_loop(
-        self, env: Any, training_cfg: Dict[str, Any], verbose: bool = True
-    ) -> Dict[str, Any]:
-        """DQN 训练循环实现
-
-        Args:
-            env: 环境实例
-            training_cfg: 训练配置
-            verbose: 是否打印日志
-
-        Returns:
-            训练结果字典
-        """
-        # 获取训练参数
-        batch_size = training_cfg.get("batch_size", 32)
-        max_steps = training_cfg.get("max_steps", 1000)
-        num_episodes = training_cfg.get("num_episodes", 1000)
-        log_interval = training_cfg.get("log_interval", 10)
-        is_eval = training_cfg.get("is_eval", False)
-        eval_interval = training_cfg.get("eval_interval", 50)
-        eval_episodes = training_cfg.get("eval_episodes", 5)
-        save_interval = training_cfg.get("save_interval", 100)
-        save_path = training_cfg.get("save_path", "checkpoints")
-
-        # 初始化
-        state = env.reset()
-        total_reward = 0
-        episode_rewards = []
-
-        if verbose:
-            print("\n" + "=" * 60)
-            print("开始 DQN 训练...")
-            print("=" * 60)
-
-        if self.metric_manager is not None:
-            self.metric_manager.start_timer()
-
-        for episode in range(num_episodes):
-            state = env.reset()
-            episode_reward = 0
-
-            for step in range(max_steps):
-                action, epsilon = self.select_action(state)
-                next_state, reward, done, info = env.step(action, state["mapping"])
-                episode_reward += reward
-                self.collect_experience(state, action, reward, next_state, done)
-
-                if self.metric_manager is not None:
-                    self.metric_manager.update(
-                        state,
-                        action,
-                        reward,
-                        next_state,
-                        done,
-                        {
-                            "epsilon": epsilon,
-                            "lcc_size": env.lcc_size[-1],
-                            "num_nodes": env.num_nodes,
-                        },
-                    )
-
-                state = next_state if not done else env.reset()
-
-                # 更新模型
-                if len(self.replay_buffer) >= batch_size:
-                    metrics = self.update(batch_size)
-                    self.step_scheduler()
-
-                if done:
-                    break
-
-            total_reward += episode_reward
-            episode_rewards.append(episode_reward)
-
-            # 打印训练日志
-            if verbose and (episode + 1) % log_interval == 0:
-                avg_reward = sum(episode_rewards[-log_interval:]) / len(
-                    episode_rewards[-log_interval:]
-                )
-                print(
-                    f"Episodes: {(episode + 1):6d} | Epsilon: {epsilon:.3f} | "
-                    f"Loss: {metrics['loss']:.4f} | LR: {self.get_lr():.6f} | "
-                    f"Avg Reward ({log_interval}): {avg_reward:.4f}"
-                )
-
-                # 打印指标信息
-                if self.metric_manager is not None:
-                    self.metric_manager.log(prefix="  ")
-
-            # 定期评估
-            if (
-                is_eval
-                and (episode + 1) % eval_interval == 0
-                and self.metric_manager is not None
-            ):
-                if verbose:
-                    print(f"\n  [评估 Episode {episode + 1}]")
-                self.set_eval_mode()
-                eval_results = self.metric_manager.evaluate(env, self, eval_episodes)
-                if verbose:
-                    for name, result in eval_results.items():
-                        current = result.get("current", 0.0)
-                        print(f"    {name}: {current:.4f}")
-                self.set_train_mode()
-
-            # 定期保存模型参数
-            if (episode + 1) % save_interval == 0:
-                import os
-
-                os.makedirs(save_path, exist_ok=True)
-                checkpoint_path = os.path.join(
-                    save_path, f"checkpoint_episode_{episode+1}.pth"
-                )
-                self.save_checkpoint(checkpoint_path, episode=episode + 1)
-                if verbose:
-                    print(f"  [保存模型参数] 检查点已保存到: {checkpoint_path}")
-
-        return {
-            "total_episodes": num_episodes,
-            "total_reward": total_reward,
-            "avg_reward": total_reward / num_episodes,
-            "final_lr": self.get_lr(),
-            "metrics": (
-                self.metric_manager.get_results() if self.metric_manager else None
-            ),
-        }

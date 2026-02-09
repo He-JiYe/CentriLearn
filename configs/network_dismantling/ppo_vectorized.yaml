@@ -1,0 +1,66 @@
+# configs/dqn.yaml
+
+algorithm:
+  type: PPO
+  model:
+    type: ActorCritic
+    backbone_cfg:
+      type: GraphSAGE
+      in_channels: 2
+      hidden_channels: 64
+      num_layers: 3
+    actor_head_cfg:
+      type: PolicyHead
+      in_channels: 128
+    critic_head_cfg:
+      type: VHead
+      in_channels: 64
+  optimizer_cfg:
+    type: Adam
+    lr: 0.0001
+    weight_decay: 0.0005
+  replaybuffer_cfg:
+    type: RolloutBuffer
+    capacity: 10000
+  metric_manager_cfg:
+    save_dir: ./logs/metrics
+    log_interval: 10
+    metrics:
+      - type: AUC
+        record: min
+      - type: AttackRate
+        record: min
+  algo_cfg:
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_epsilon: 0.2
+    entropy_coef: 0.01
+    value_coef: 0.5
+    max_grad_norm: 0.5
+    num_epochs: 10
+  device: cuda
+
+environment:
+  type: NetworkDismantlingEnv
+  synth_type: ba
+  synth_args:
+    min_n: 30
+    max_n: 50
+    m: 4
+  env_num: 4
+  node_features: combin
+  is_undirected: True
+  value_type: ar
+  use_gcc: False
+  use_component: False
+  device: cuda
+
+training:
+  num_episodes: 1000
+  max_steps: 1000
+  batch_size: 32
+  log_interval: 10
+  eval_interval: 1000
+  eval_episodes: 1
+  save_path: .checkpoints/ppo
+  save_interval: 100
