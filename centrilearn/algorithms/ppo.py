@@ -73,7 +73,9 @@ class PPO(BaseAlgorithm):
         """
         return build_network_dismantler(model_cfg)
 
-    def _select_action_single(self, state: Dict[str, Any], **kwargs) -> Tuple[Union[torch.Tensor, int], ...]:
+    def _select_action_single(
+        self, state: Dict[str, Any], **kwargs
+    ) -> Tuple[Union[torch.Tensor, int], ...]:
         """为单个环境选择动作
 
         Args:
@@ -117,10 +119,10 @@ class PPO(BaseAlgorithm):
                 action = torch.multinomial(probs, 1)
                 log_prob = F.log_softmax(logit, dim=0)[action]
 
-        return action.squeeze(), log_prob.squeeze(), value
+        return action.item(), log_prob.item(), value.item()
 
-    def _collect_experience_single(self, state: Dict[str, Any], *args, **kwargs):
-        """为单个环境收集经验到轨迹缓冲区
+    def collect_experience(self, state: Dict[str, Any], *args, **kwargs):
+        """收集经验到轨迹缓冲区
 
         Args:
             state: 当前状态
@@ -128,9 +130,7 @@ class PPO(BaseAlgorithm):
             **kwargs: 可选参数
         """
         action, reward, _, done, log_prob, value = args
-        self.replay_buffer.push(
-            state, action.item(), reward, done, log_prob.item(), value.item()
-        )
+        self.replay_buffer.push(state, action, reward, done, log_prob, value)
 
     def update(self, batch_size: int = 64) -> Dict[str, float]:
         """更新模型

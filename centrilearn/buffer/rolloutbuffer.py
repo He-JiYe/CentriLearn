@@ -257,6 +257,7 @@ class VectorizedRolloutBuffer:
         Returns:
             批次数据列表
         """
+
         # 并行从每个缓冲区获取批次
         def get_buffer_batches(i):
             return self.buffers[i].get_batches(batch_size, gamma, gae_lambda)
@@ -272,6 +273,7 @@ class VectorizedRolloutBuffer:
 
     def clear(self):
         """清空所有缓冲区"""
+
         def clear_buffer(buffer):
             buffer.clear()
 
@@ -286,5 +288,5 @@ class VectorizedRolloutBuffer:
 
     def __del__(self):
         """清理资源，关闭线程池"""
-        if hasattr(self, 'executor'):
+        if hasattr(self, "executor"):
             self.executor.shutdown(wait=False)

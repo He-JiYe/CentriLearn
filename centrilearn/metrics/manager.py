@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import numpy as np
+
 from centrilearn.metrics.base import BaseMetric
 
 
@@ -49,6 +51,11 @@ class MetricManager:
             from centrilearn.utils.builder import build_metric
 
             metric = build_metric(metric)
+
+        if isinstance(metric, BaseMetric):
+            from copy import deepcopy
+
+            metric = deepcopy(metric)
 
         if not isinstance(metric, BaseMetric):
             raise TypeError(f"metric 必须是 BaseMetric 实例或配置字典")
@@ -307,12 +314,13 @@ class VectorizedMetricManager:
 
         # 为每个环境创建一个 MetricManager 实例
         for _ in range(env_num):
-            manager = MetricManager(
-                metrics=metrics,
-                save_dir=save_dir,
-                log_interval=log_interval,
+            self.managers.append(
+                MetricManager(
+                    metrics=metrics,
+                    save_dir=save_dir,
+                    log_interval=log_interval,
+                )
             )
-            self.managers.append(manager)
 
         # 创建线程池
         self.executor = ThreadPoolExecutor(max_workers=env_num)
@@ -323,6 +331,7 @@ class VectorizedMetricManager:
         Args:
             metric: 指标实例或配置字典
         """
+
         def add_to_manager(manager):
             manager.add_metric(metric)
 
@@ -346,6 +355,7 @@ class VectorizedMetricManager:
         Returns:
             是否所有管理器都成功移除
         """
+
         def remove_from_manager(manager):
             return manager.remove_metric(name)
 
@@ -431,6 +441,7 @@ class VectorizedMetricManager:
         Returns:
             所有指标的评估结果
         """
+
         # 并行评估每个管理器
         def evaluate_manager(i):
             env = envs[i] if envs else None
@@ -451,6 +462,7 @@ class VectorizedMetricManager:
         Returns:
             指标结果字典
         """
+
         # 并行获取每个管理器的结果
         def get_manager_results(manager):
             return manager.get_results()
@@ -476,6 +488,7 @@ class VectorizedMetricManager:
         Returns:
             指标值字典
         """
+
         # 并行获取每个管理器的摘要
         def get_manager_summary(manager):
             return manager.get_summary()
@@ -484,14 +497,17 @@ class VectorizedMetricManager:
 
         # 合并结果
         merged_summary = {}
-        for i, summary in enumerate(results):
+        for summary in results:
             for key, value in summary.items():
-                merged_summary[f"{key}_env{i}"] = value
+                merged_summary[f"{key}_avg"] = (
+                    merged_summary.get(f"{key}_avg", 0) + value / self.num_envs
+                )
 
         return merged_summary
 
     def reset(self):
         """批量重置所有管理器的指标"""
+
         def reset_manager(manager):
             manager.reset()
 
@@ -503,6 +519,7 @@ class VectorizedMetricManager:
         Args:
             name: 指标名称
         """
+
         def reset_manager_metric(manager):
             manager.reset_metric(name)
 
@@ -514,11 +531,13 @@ class VectorizedMetricManager:
         Args:
             path: 保存路径，默认使用 save_dir
         """
+
         def save_manager(i):
             manager_path = path
             if path and self.num_envs > 1:
                 # 为每个环境创建不同的保存路径
                 import os
+
                 base_dir = os.path.dirname(path)
                 base_name = os.path.basename(path)
                 name, ext = os.path.splitext(base_name)
@@ -529,6 +548,7 @@ class VectorizedMetricManager:
 
     def start_timer(self):
         """批量开始所有管理器的计时"""
+
         def start_manager_timer(manager):
             manager.start_timer()
 
@@ -540,6 +560,7 @@ class VectorizedMetricManager:
         Returns:
             平均经过的时间
         """
+
         def get_manager_time(manager):
             return manager.get_elapsed_time()
 
@@ -578,5 +599,5 @@ class VectorizedMetricManager:
 
     def __del__(self):
         """清理资源，关闭线程池"""
-        if hasattr(self, 'executor'):
+        if hasattr(self, "executor"):
             self.executor.shutdown(wait=False)

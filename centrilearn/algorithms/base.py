@@ -64,7 +64,9 @@ class BaseAlgorithm(ABC):
         # 构建优化器、调度器和指标管理器
         self.optimizer = build_optimizer(self.model, optimizer_cfg)
         self.scheduler = build_scheduler(self.optimizer, scheduler_cfg)
-        self.replay_buffer = build_replaybuffer(replaybuffer_cfg) if replaybuffer_cfg else None
+        self.replay_buffer = (
+            build_replaybuffer(replaybuffer_cfg) if replaybuffer_cfg else None
+        )
         self.metric_manager = build_metric_manager(metric_manager_cfg)
 
         # 训练状态
@@ -106,7 +108,9 @@ class BaseAlgorithm(ABC):
         pass
 
     @abstractmethod
-    def _select_action_single(self, state: Dict[str, Any], **kwargs) -> Tuple[Union[torch.Tensor, int], ...]:
+    def _select_action_single(
+        self, state: Dict[str, Any], **kwargs
+    ) -> Tuple[Union[torch.Tensor, int], ...]:
         """为单个环境选择动作
 
         Args:
@@ -119,8 +123,8 @@ class BaseAlgorithm(ABC):
         pass
 
     @abstractmethod
-    def _collect_experience_single(self, state: Dict[str, Any], *args, **kwargs):
-        """为单个环境收集经验到缓冲区
+    def collect_experience(self, state: Dict[str, Any], *args, **kwargs):
+        """收集经验到缓冲区
 
         Args:
             state: 当前状态
@@ -160,34 +164,6 @@ class BaseAlgorithm(ABC):
         else:
             # 单环境：直接调用 _select_action_single
             return self._select_action_single(state, **kwargs)
-
-    def collect_experience(self, state: Union[Dict[str, Any], List[Dict[str, Any]]], *args, **kwargs):
-        """收集经验到缓冲区
-
-        Args:
-            state: 当前状态或状态列表（对于向量化环境）
-            *args: 其他必需参数（如 action, reward, next_state, done, log_prob, value 等）
-            **kwargs: 可选参数
-        """
-        # 检查是否为向量化环境的状态列表
-        if isinstance(state, list):
-            # 向量化环境：遍历处理每个状态
-            num_envs = len(state)
-
-            # 确保所有参数都是列表且长度匹配
-            for arg in args:
-                assert isinstance(arg, list) and len(arg) == num_envs, ValueError(f"参数长度 {len(arg)} 必须与环境数量 {num_envs} 匹配")
-
-            # 处理每个环境的经验
-            for i in range(num_envs):
-                # 提取每个环境的参数
-                env_args = [arg[i] if isinstance(arg, list) else arg for arg in args]
-
-                # 收集经验
-                self._collect_experience_single(state[i], *env_args, **kwargs)
-        else:
-            # 单环境：直接调用 _collect_experience_single
-            self._collect_experience_single(state, *args, **kwargs)
 
     def set_train_mode(self) -> None:
         """设置为训练模式"""
@@ -323,11 +299,15 @@ class BaseAlgorithm(ABC):
                 # 计算总奖励
                 total_reward += sum(reward)
                 # 收集经验
-                self.collect_experience(state, action, reward, next_state, done, *extra_info)
+                self.collect_experience(
+                    state, action, reward, next_state, done, *extra_info
+                )
 
                 # 处理指标更新
                 if self.metric_manager is not None:
-                    self.metric_manager.update(state, action, reward, next_state, done, info)
+                    self.metric_manager.update(
+                        state, action, reward, next_state, done, info
+                    )
 
                 # 更新模型
                 if self.replay_buffer and len(self.replay_buffer) >= batch_size:
@@ -335,7 +315,11 @@ class BaseAlgorithm(ABC):
                     self.step_scheduler(metrics)
 
                 # 检查是否有环境完成
-                done_indices = [i for i, ev in enumerate(env) if ev.step_count >= max_steps or done[i]]
+                done_indices = [
+                    i
+                    for i, ev in enumerate(env)
+                    if ev.step_count >= max_steps or done[i]
+                ]
                 if done_indices:
                     # 增加已完成的幕数
                     completed_episodes += len(done_indices)
@@ -359,19 +343,13 @@ class BaseAlgorithm(ABC):
                 Returns += reward
                 total_reward += reward
                 # 收集经验
-                self.collect_experience(state, action, reward, next_state, done, *extra_info)
+                self.collect_experience(
+                    state, action, reward, next_state, done, *extra_info
+                )
 
                 if self.metric_manager is not None:
                     self.metric_manager.update(
-                        state,
-                        action,
-                        reward,
-                        next_state,
-                        done,
-                        {
-                            "lcc_size": env.lcc_size[-1],
-                            "num_nodes": env.num_nodes,
-                        },
+                        state, action, reward, next_state, done, info
                     )
 
                 # 更新模型
@@ -389,7 +367,11 @@ class BaseAlgorithm(ABC):
                     continue
 
             # 打印训练日志
-            if verbose and completed_episodes > 0 and completed_episodes % log_interval == 0:
+            if (
+                verbose
+                and completed_episodes > 0
+                and completed_episodes % log_interval == 0
+            ):
                 avg_reward = sum(episode_rewards[-log_interval:]) / len(
                     episode_rewards[-log_interval:]
                 )

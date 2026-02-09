@@ -52,7 +52,7 @@ def train_from_cfg(
     for key in algorithm_required_keys:
         if key not in config["algorithm"]:
             raise KeyError(
-                f'algorithm config must contain "{key}", but got keys: {config.keys()}'
+                f'algorithm config must contain "{key}", but got keys: {config["algorithm"].keys()}'
             )
 
     algorithm_cfg, env_cfg, training_cfg = (
@@ -80,6 +80,7 @@ def train_from_cfg(
     try:
         # 检查是否为向量化环境
         from centrilearn.environments import VectorizedEnv
+
         if isinstance(env, VectorizedEnv):
             env_num = env.num_envs
     except ImportError:

@@ -146,7 +146,7 @@ python tools/train.py configs/network_dismantling/ppo.yaml --num_episodes 500 --
 
 ```python
 import yaml
-from src.utils import train_from_cfg
+from centrilearn.utils import train_from_cfg
 
 # Load configuration file
 with open('configs/network_dismantling/dqn.yaml', 'r') as f:
@@ -164,7 +164,7 @@ print(f"Total episodes: {results['total_episodes']}")
 
 ```python
 import networkx as nx
-from src.utils import build_environment, build_algorithm
+from centrilearn.utils import build_environment, build_algorithm
 
 # Create custom environment
 graph = nx.barabasi_albert_graph(n=50, m=2)
@@ -316,7 +316,7 @@ training:
 Using vectorized environments can significantly improve training efficiency by running multiple environment instances simultaneously:
 
 ```python
-from src.environments import VectorizedEnv
+from centrilearn.environments import VectorizedEnv
 
 # Create vectorized environment
 env = VectorizedEnv({
@@ -401,7 +401,7 @@ CentriLearn/
 ├── docs/                       # Documentation
 ├── logs/                       # Logs
 ├── notebooks/                  # Jupyter notebooks
-├── src/                        # Source code
+├── centrilearn/                # Source code
 │   ├── algorithms/             # RL algorithms
 │   │   ├── base.py            # Algorithm base class
 │   │   ├── dqn.py             # DQN implementation
@@ -461,10 +461,10 @@ Contributions are welcome! Please follow these steps:
 
 ### Code Standards
 
-- Format code with Black: `black src/`
-- Sort imports with isort: `isort src/`
+- Format code with Black: `black centrilearn/`
+- Sort imports with isort: `isort centrilearn/`
 - Run tests: `pytest`
-- Check types: `mypy src/`
+- Check types: `mypy centrilearn/`
 
 ---
 
@@ -476,7 +476,7 @@ Contributions are welcome! Please follow these steps:
 
 ```python
 import networkx as nx
-from src.utils import build_environment
+from centrilearn.utils import build_environment
 
 # Load network data
 graph = nx.read_edgelist('data/my_network.edgelist')
@@ -504,7 +504,7 @@ We will further optimize project performance in the future.
 **A:** Use the registry decorator to register your algorithm:
 
 ```python
-from src.utils import ALGORITHMS
+from centrilearn.utils import ALGORITHMS
 
 @ALGORITHMS.register_module()
 class MyAlgorithm(BaseAlgorithm):
@@ -525,7 +525,7 @@ algorithm:
 **A:** Load a checkpoint and evaluate on the test set:
 
 ```python
-from src.utils import build_algorithm
+from centrilearn.utils import build_algorithm
 
 # Build algorithm
 algo = build_algorithm(algorithm_cfg)

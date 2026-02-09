@@ -61,5 +61,5 @@ training:
   log_interval: 10
   eval_interval: 1000
   eval_episodes: 1
-  save_path: .checkpoints/ppo
+  save_path: ./checkpoints/ppo
   save_interval: 100

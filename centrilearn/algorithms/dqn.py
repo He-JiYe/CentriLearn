@@ -94,7 +94,9 @@ class DQN(BaseAlgorithm):
         )
         return epsilon
 
-    def _select_action_single(self, state: Dict[str, Any], **kwargs) -> Tuple[Union[torch.Tensor, int], ...]:
+    def _select_action_single(
+        self, state: Dict[str, Any], **kwargs
+    ) -> Tuple[Union[torch.Tensor, int], ...]:
         """为单个环境选择动作（epsilon-greedy 策略）
 
         Args:
@@ -132,7 +134,7 @@ class DQN(BaseAlgorithm):
                 q_values = output["q_values"].squeeze(-1)
                 action = torch.argmax(q_values)
 
-        return action, epsilon
+        return action.item(), epsilon
 
     def update(self, batch_size: int) -> Dict[str, float]:
         """更新模型
@@ -255,8 +257,8 @@ class DQN(BaseAlgorithm):
         """
         return self.update(batch.get("batch_size", 32))
 
-    def _collect_experience_single(self, state: Dict[str, Any], *args, **kwargs):
-        """为单个环境收集经验到回放缓冲区
+    def collect_experience(self, state: Dict[str, Any], *args, **kwargs):
+        """收集经验到回放缓冲区
 
         Args:
             state: 当前状态

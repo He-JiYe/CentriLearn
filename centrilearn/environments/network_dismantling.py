@@ -47,9 +47,7 @@ class NetworkDismantlingEnv(BaseEnv):
         self.remove_nodes = []
         self.lcc_size = [1]
 
-    def _step_impl(
-        self, action: int
-        ) -> Tuple[float, bool, Dict[str, Any]]:
+    def _step_impl(self, action: int) -> Tuple[float, bool, Dict[str, Any]]:
         """执行一步动作
 
         Args:
@@ -73,7 +71,10 @@ class NetworkDismantlingEnv(BaseEnv):
             reward = -1 / self.num_nodes
 
         done = self.is_empty() or self.lcc() <= 1
-        info = {}
+        info = {
+            "lcc_size": self.lcc_size[-1],
+            "num_nodes": self.num_nodes,
+        }
 
         return next_state, reward, done, info
 

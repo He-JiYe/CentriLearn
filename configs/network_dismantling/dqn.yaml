@@ -58,5 +58,5 @@ training:
   log_interval: 10
   eval_interval: 1000
   eval_episodes: 1
-  save_path: .checkpoints/dqn
+  save_path: ./checkpoints/dqn
   save_interval: 100

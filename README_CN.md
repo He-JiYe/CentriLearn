@@ -404,7 +404,7 @@ CentriLearn/
 ├── docs/                       # 文档目录
 ├── logs/                       # 日志目录
 ├── notebooks/                  # Jupyter notebooks
-├── src/                        # 源代码目录
+├── centrilearn/                # 源代码目录
 │   ├── algorithms/             # 强化学习算法
 │   │   ├── base.py            # 算法基类
 │   │   ├── dqn.py             # DQN 实现
@@ -464,10 +464,10 @@ CentriLearn/
 
 ### 代码规范
 
-- 使用 Black 格式化代码: `black src/`
-- 使用 isort 排序导入: `isort src/`
+- 使用 Black 格式化代码: `black centrilearn/`
+- 使用 isort 排序导入: `isort centrilearn/`
 - 运行测试: `pytest`
-- 检查类型: `mypy src/`
+- 检查类型: `mypy centrilearn/`
 
 ---
 

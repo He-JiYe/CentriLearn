@@ -22,7 +22,12 @@ class VectorizedEnv:
         infos: 环境信息列表
     """
 
-    def __init__(self, env_class: Type[BaseEnv], env_kwargs_list: List[Dict[str, Any]], env_num: Optional[int] = None):
+    def __init__(
+        self,
+        env_class: Type[BaseEnv],
+        env_kwargs_list: List[Dict[str, Any]],
+        env_num: Optional[int] = None,
+    ):
         """初始化向量化环境
 
         Args:
@@ -91,7 +96,7 @@ class VectorizedEnv:
             # 首次重置所有环境
             def reset_env(i):
                 return self.envs[i].reset()
-            
+
             self.observations = list(self.executor.map(reset_env, range(self.num_envs)))
             self.dones = [False] * self.num_envs
             self.infos = [{} for _ in range(self.num_envs)]
@@ -107,7 +112,7 @@ class VectorizedEnv:
             self.dones[idx] = False
             self.infos[idx] = {}
             return obs
-        
+
         results = list(self.executor.map(reset_env, indices))
 
         return results
@@ -135,7 +140,7 @@ class VectorizedEnv:
         def step_env(i):
             env = self.envs[i]
             action = actions[i]
-            
+
             if self.dones[i]:
                 # 已终止的环境返回观测但不执行动作
                 obs = self.observations[i]
@@ -147,7 +152,7 @@ class VectorizedEnv:
                 state = self.observations[i]
                 mapping = env.mapping
                 step_result = env.step(action)
-                
+
                 # 处理不同的 step 返回值格式
                 if len(step_result) == 4:
                     # 格式: (next_state, reward, done, info)
@@ -156,9 +161,9 @@ class VectorizedEnv:
                     # 格式: (reward, done, info)
                     reward, done, info = step_result
                     obs = env.get_state()
-                
+
                 self.observations[i] = obs
-            
+
             self.dones[i] = done
             return obs, reward, done, info
 
@@ -182,5 +187,5 @@ class VectorizedEnv:
 
     def __del__(self):
         """清理资源，关闭线程池"""
-        if hasattr(self, 'executor'):
+        if hasattr(self, "executor"):
             self.executor.shutdown(wait=False)

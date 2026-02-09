@@ -419,7 +419,12 @@ def build_environment(cfg: Dict, default_args: Dict = None):
         return VectorizedEnv(env_class, env_kwargs_list, env_num)
 
     # 支持单环境配置 + env_num 的方式创建向量化环境
-    if cfg.get("env_num", 1) > 1 and not cfg.get("graph_list") and not cfg.get("graph_files_list") and not cfg.get("env_kwargs_list"):
+    if (
+        cfg.get("env_num", 1) > 1
+        and not cfg.get("graph_list")
+        and not cfg.get("graph_files_list")
+        and not cfg.get("env_kwargs_list")
+    ):
         from ..environments import VectorizedEnv
 
         # 提取环境配置，去除不需要的键
@@ -427,19 +432,22 @@ def build_environment(cfg: Dict, default_args: Dict = None):
         env_kwargs.pop("type", None)
         env_kwargs.pop("env_num", None)
         env_kwargs.pop("graph_file", None)
-        
+
         # 处理图文件
         if cfg.get("graph_file"):
             from networkx import read_edgelist
+
             env_kwargs["graph"] = read_edgelist(cfg.get("graph_file"), nodetype=int)
-        
+
         # 处理默认图
         if env_kwargs.get("graph") is None:
             from random import randint
+
             from networkx import barabasi_albert_graph
+
             n = randint(40, 60)
             env_kwargs["graph"] = barabasi_albert_graph(n, 3)
-        
+
         return VectorizedEnv(env_class, [env_kwargs], cfg.get("env_num"))
 
     if cfg.get("graph_file"):
@@ -488,18 +496,18 @@ def build_replaybuffer(cfg: Union[Dict, List], default_args: Dict = None):
         return [build_from_cfg(_cfg, REPLAYBUFFERS, default_args) for _cfg in cfg]
 
     # 检查是否需要创建向量化缓冲区
-    env_num = cfg.get('env_num', 1)
-    buffer_type = cfg.get('type', '')
+    env_num = cfg.get("env_num", 1)
+    buffer_type = cfg.get("type", "")
 
     if env_num > 1:
         # 创建向量化缓冲区
-        if buffer_type == 'ReplayBuffer':
-            cfg['type'] = 'VectorizedReplayBuffer'
-        elif buffer_type == 'RolloutBuffer':
-            cfg['type'] = 'VectorizedRolloutBuffer'
+        if buffer_type == "ReplayBuffer":
+            cfg["type"] = "VectorizedReplayBuffer"
+        elif buffer_type == "RolloutBuffer":
+            cfg["type"] = "VectorizedRolloutBuffer"
         return build_from_cfg(cfg, REPLAYBUFFERS, default_args)
     else:
-        cfg.pop('env_num')
+        cfg.pop("env_num")
         return build_from_cfg(cfg, REPLAYBUFFERS, default_args)
 
 
@@ -546,6 +554,7 @@ def build_metric_manager(cfg: Dict = None):
 
     if num_env > 1:
         from ..metrics.manager import VectorizedMetricManager
+
         return VectorizedMetricManager(
             env_num=num_env,
             metrics=metrics,
@@ -554,6 +563,7 @@ def build_metric_manager(cfg: Dict = None):
         )
     else:
         from ..metrics.manager import MetricManager
+
         return MetricManager(
             metrics=metrics,
             save_dir=cfg.get("save_dir"),
