@@ -68,7 +68,7 @@ def train_from_cfg(
 
     # 1. 构建环境
     if verbose:
-        print(f"\n[1/5] 构建环境: {env_cfg.get('type', 'unknown')}")
+        print(f"\n[1/4] 构建环境: {env_cfg.get('type', 'unknown')}")
 
     # 延迟导入构建函数
     from centrilearn.utils.builder import build_environment
@@ -92,7 +92,7 @@ def train_from_cfg(
 
     # 3. 构建算法
     if verbose:
-        print(f"\n[2/5] 构建算法: {algorithm_cfg['type']}")
+        print(f"\n[2/4] 构建算法: {algorithm_cfg['type']}")
         print(f"      - 模型类型: {algorithm_cfg.get('model', 'unknown')}")
         print(
             f"      - 优化器: {algorithm_cfg.get('optimizer_cfg', {}).get('type')} (lr={algorithm_cfg.get('optimizer_cfg', {}).get('lr', 'N/A')})"
@@ -127,7 +127,7 @@ def train_from_cfg(
     resume_from = training_cfg.get("resume")
     if resume_from:
         if verbose:
-            print(f"\n[3/5] 恢复训练...")
+            print(f"\n 恢复训练...")
             print(f"      从检查点恢复: {resume_from}")
 
         # 加载检查点
@@ -148,16 +148,16 @@ def train_from_cfg(
 
     if verbose:
         if not resume_from:
-            print(f"\n[4/5] 开始训练...")
+            print(f"\n[3/4] 开始训练...")
         else:
-            print(f"\n[4/5] 继续训练...")
+            print(f"\n[3/4] 继续训练...")
         print(f"      训练配置: {final_training_cfg}")
 
     results = algorithm._run_training_loop(env, final_training_cfg)
 
     # 6. 训练完成
     if verbose:
-        print(f"\n[5/5] 训练完成！")
+        print(f"\n[4/4] 训练完成！")
         print(f"\n训练结果:")
         for key, value in results.items():
             if key not in ["episode_rewards", "metrics"]:  #

@@ -135,6 +135,17 @@ def parse_args():
         "--is_valid", action="store_true", help="是否进行验证 (默认: False)"
     )
 
+    # 优化相关
+    parser.add_argument(
+        "--benchmark", action="store_false", help="启用 PyTorch 基准测试"
+    )
+    parser.add_argument(
+        "--deterministic", action="store_true", help="启用确定性模式"
+    )
+    parser.add_argument(
+        "--memory_efficient", action="store_true", help="启用内存高效模式"
+    )
+
     # Checkpoint 相关
     parser.add_argument(
         "--ckpt_dir",
@@ -205,9 +216,9 @@ def main():
 
         setup_performance_optimizations(
             device=config["algorithm"].get("device", "cuda"),
-            benchmark=True,
-            deterministic=False,
-            memory_efficient=True,
+            benchmark=args.benchmark,
+            deterministic=args.deterministic,
+            memory_efficient=args.memory_efficient,
         )
     except ImportError:
         if verbose:
