@@ -3,8 +3,8 @@
 <div align="center">
 
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.7.0-orange.svg)](https://pytorch.org/)
-[![Version](https://img.shields.io/badge/version-v0.1.1--alpha-blue)](https://github.com/He-JiYe/CentriLearn/releases/tag/v0.1.1-alpha)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.7.0+-orange.svg)](https://pytorch.org/)
+[![Version](https://img.shields.io/badge/version-v0.2.0-blue)](https://github.com/He-JiYe/CentriLearn/releases/tag/v0.2.0)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![中文文档](https://img.shields.io/badge/README-中文-blue.svg)](README_CN.md)  
 
@@ -16,7 +16,7 @@ A reinforcement learning framework based on graph neural networks for solving co
 
 ## Update Progress
 
-### Latest Version: v0.1.1-alpha (Feb 2026)
+### Latest Version: v0.2.0 (Feb 2026)
 
 #### ✅ Completed Features
 
@@ -38,14 +38,20 @@ A reinforcement learning framework based on graph neural networks for solving co
 - ✅ Synthetic graph generation (BA, ER, etc.)
 - ✅ Real-world network dataset support
 
+#### ✅ Newly Completed Features
+
+**Performance Optimization**
+- ✅ Vectorized environment (VectorizedEnv) supporting parallel training
+- ✅ Vectorized environment configuration file (dqn_vectorized.yaml)
+
 #### 🚧 Future Plans
 
-- 🔄 Support for vectorized environments
 - 🔄 More reinforcement learning algorithms (A3C, SAC, TD3)
 - 🔄 More application scenarios
 - 🔄 More training tools
 - 🔄 Distributed training support
 - 🔄 Documentation improvement and performance optimization
+- 🔄 Large-scale testing and evaluation
 
 ---
 

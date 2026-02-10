@@ -3,10 +3,10 @@
 <div align="center">
 
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.7.0-orange.svg)](https://pytorch.org/)
-[![Version](https://img.shields.io/badge/version-v0.1.1--alpha-blue)](https://github.com/He-JiYe/CentriLearn/releases/tag/v0.1.1-alpha)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.7.0+-orange.svg)](https://pytorch.org/)
+[![Version](https://img.shields.io/badge/version-v0.2.0-blue)](https://github.com/He-JiYe/CentriLearn/releases/tag/v0.2.0)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![英文文档](https://img.shields.io/badge/README-English-blue.svg)](README.md)  
+[![英文文档](https://img.shields.io/badge/README-English-blue.svg)](README.md)
 
 一个基于图神经网络的强化学习框架，用于解决复杂网络中的组合优化问题，如网络瓦解等。
 
@@ -16,7 +16,7 @@
 
 ## 更新进度
 
-### 最新版本：v0.1.1-alpha (2026-02)
+### 最新版本：v0.2.0 (2026.02.10)
 
 #### ✅ 已完成功能
 
@@ -39,15 +39,31 @@
 - ✅ 真实网络数据集支持
 
 
+#### ✅ 更新日志（2026.02.10）
+**Bug 修复**
+- ✅ 修复 algorithms/backbones/ 中 GAT、GIN 的 graph_embed 未定义
+- ✅ 修复 DQN 算法中的 double dqn 重复计算以及错误使用 argmax 方法
+
+**新增功能**
+- ✅ 定时保存功能: 为DQN和PPO算法添加定期保存模型检查点
+- ✅ 恢复训练功能: 为训练流程添加resume功能
+- ✅ 支持多线程向量化环境（VectorizedEnv）训练
+  
+**性能优化**
+- ✅ 优化连通分量计算性能（递归 → 迭代实现）
+- ✅ 优化 DQN 训练过程（梯度裁剪 + 目标网络更新频率调整）
+- ✅ 优化训练性能和内存效率
+
 #### 🚧 未来计划
 
-- 🔄 支持向量化环境
 - 🔄 更多强化学习算法（A3C、SAC、TD3）
 - 🔄 更多应用场景
 - 🔄 更多训练工具
 - 🔄 分布式训练支持
 - 🔄 文档完善和性能优化
 - 🔄 大规模测试和评估
+- 🔄 用 Rust 重写核心模块，提升训练效率
+
 
 ---
 
@@ -100,11 +116,8 @@
 git clone https://github.com/yourusername/CentriLearn.git
 cd CentriLearn
 
-# 安装核心依赖
+# 安装依赖
 pip install -e .
-
-# 安装所有依赖（推荐）
-pip install -e ".[all]"
 ```
 
 #### 方式二：手动安装依赖
@@ -114,7 +127,7 @@ pip install -e ".[all]"
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 # 安装 PyTorch Geometric
-pip install torch-geometric torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.0.0+cu118.html
+pip install torch-geometric torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.7.0+cu118.html
 
 # 安装其他依赖
 pip install networkx numpy pyyaml tqdm
@@ -149,7 +162,7 @@ python tools/train.py configs/network_dismantling/ppo.yaml --num_episodes 500 --
 
 ```python
 import yaml
-from src.utils import train_from_cfg
+from centrilearn.utils import train_from_cfg
 
 # 加载配置文件
 with open('configs/network_dismantling/dqn.yaml', 'r') as f:
@@ -167,14 +180,15 @@ print(f"训练轮数: {results['total_episodes']}")
 
 ```python
 import networkx as nx
-from src.utils import build_environment, build_algorithm
+from centrilearn.utils import build_environment, build_algorithm
 
 # 创建自定义环境
 graph = nx.barabasi_albert_graph(n=50, m=2)
 env = build_environment({
     'type': 'NetworkDismantlingEnv',
     'graph': graph,
-    'node_features': 'combin'
+    'node_features': 'combin',
+    'is_undirected': True
 })
 
 # 构建算法
@@ -244,7 +258,7 @@ algorithm:
     save_dir: ./logs/metrics
     log_interval: 10
     metrics:
-      - type: AUC                         # 最大连通分量面积
+      - type: AUC                         # 攻击曲线下面积
         record: min
       - type: AttackRate                  # 攻击率
         record: min
@@ -264,6 +278,7 @@ environment:
     max_n: 50
     m: 4
   node_features: combin                    # 节点特征类型
+  env_num: 1                              # 环境并行数( >1 时启动向量化环境训练)            
   is_undirected: True
   value_type: ar                          # 奖励类型: ar (attack rate)
   use_gcc: False
@@ -306,20 +321,19 @@ training:
 - `VectorizedEnv`: 向量化环境（并行训练）
 
 #### 缓冲区
-- `ReplayBuffer`: 标准经验回放
-- `PrioritizedReplayBuffer`: 优先级经验回放
+- `ReplayBuffer`: 标准经验回放（支持优先级采样和N-step采样）
 - `RolloutBuffer`: PPO 轨迹缓冲区
 
 ---
 
 ## 高级功能
 
-### 向量化环境训练 (正开发中)
+### 向量化环境训练
 
 使用向量化环境可以大幅提升训练效率，支持同时运行多个环境实例：
 
 ```python
-from src.environments import VectorizedEnv
+from centrilearn.environments import VectorizedEnv
 
 # 创建向量化环境
 env = VectorizedEnv({
@@ -380,8 +394,6 @@ metric_manager_cfg:
       record: min
     - type: AttackRate    # 攻击率
       record: min
-    - type: EpisodeReward # 累积奖励
-      record: max
 ```
 
 指标历史会自动保存为 JSON 文件，方便后续分析。
@@ -396,19 +408,19 @@ CentriLearn/
 │   └── network_dismantling/    # 网络瓦解任务配置
 │       ├── dqn.yaml
 │       ├── ppo.yaml
-│       └── dqn_vectorized.yaml
-├── ckpt/                       # 模型权重保存目录
+│       ├── dqn_vectorized.yaml
+│       └── ppo_vectorized.yaml
+├── checkpoints/                # 模型权重保存目录
 ├── data/                       # 数据集目录
 │   ├── small/                  # 小规模网络
 │   └── large/                  # 大规模网络
 ├── docs/                       # 文档目录
 ├── logs/                       # 日志目录
-├── notebooks/                  # Jupyter notebooks
 ├── centrilearn/                # 源代码目录
 │   ├── algorithms/             # 强化学习算法
-│   │   ├── base.py            # 算法基类
-│   │   ├── dqn.py             # DQN 实现
-│   │   └── ppo.py             # PPO 实现
+│   │   ├── base.py             # 算法基类
+│   │   ├── dqn.py              # DQN 实现
+│   │   └── ppo.py              # PPO 实现
 │   ├── buffer/                 # 经验缓冲区
 │   │   ├── base.py
 │   │   ├── replaybuffer.py
@@ -417,18 +429,18 @@ CentriLearn/
 │   │   ├── base.py
 │   │   ├── network_dismantling.py
 │   │   └── vectorized_env.py
-│   ├── metrics/               # 评估指标
+│   ├── metrics/                # 评估指标
 │   │   ├── base.py
 │   │   ├── manager.py
 │   │   └── network_dismantling_metrics.py
-│   ├── models/                # 模型组件
-│   │   ├── backbones/         # 骨干网络
+│   ├── models/                 # 模型组件
+│   │   ├── backbones/          # 骨干网络
 │   │   │   ├── GraphSAGE.py
 │   │   │   ├── GAT.py
 │   │   │   ├── GIN.py
 │   │   │   ├── DeepNet.py
 │   │   │   └── FPNet.py
-│   │   ├── heads/             # 预测头
+│   │   ├── heads/              # 预测头
 │   │   │   ├── q_head.py
 │   │   │   ├── v_head.py
 │   │   │   ├── logit_head.py
@@ -436,18 +448,17 @@ CentriLearn/
 │   │   ├── network_dismantler/ # 完整模型
 │   │   │   ├── Qnet.py
 │   │   │   └── ActorCritic.py
-│   │   └── loss/              # 损失函数
+│   │   └── loss/               # 损失函数
 │   │       └── restruct_loss.py
-│   └── utils/                 # 工具模块
+│   └── utils/                  # 工具模块
 │       ├── builder.py          # 组件构建器
-│       ├── registry.py        # 注册器
-│       └── train.py           # 训练入口
-├── tests/                     # 测试目录
-├── tools/                     # 工具脚本
-│   └── train.py              # 训练脚本
-├── pyproject.toml            # 项目配置
-├── README.md                 # 英文说明
-└── README_CN.md             # 中文说明（本文件）
+│       ├── registry.py         # 注册器
+│       └── train.py            # 训练入口
+├── tools/                      # 工具脚本
+│   └── train.py                # 训练脚本
+├── pyproject.toml              # 项目配置
+├── README.md                   # 英文说明
+└── README_CN.md                # 中文说明（本文件）
 ```
 
 ---
@@ -479,7 +490,7 @@ CentriLearn/
 
 ```python
 import networkx as nx
-from src.utils import build_environment
+from centrilearn.utils import build_environment
 
 # 加载网络数据
 graph = nx.read_edgelist('data/my_network.edgelist')
@@ -506,7 +517,7 @@ env = build_environment({
 **A:** 使用注册器装饰器注册您的算法：
 
 ```python
-from src.utils import ALGORITHMS
+from centrilearn.utils import ALGORITHMS
 
 @ALGORITHMS.register_module()
 class MyAlgorithm(BaseAlgorithm):
@@ -527,7 +538,7 @@ algorithm:
 **A:** 加载 checkpoint 并在测试集上评估：
 
 ```python
-from src.utils import build_algorithm
+from centrilearn.utils import build_algorithm
 
 # 构建算法
 algo = build_algorithm(algorithm_cfg)

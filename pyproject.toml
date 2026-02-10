@@ -1,6 +1,6 @@
 [project]
 name = "centrilearn"
-version = "0.1.0-alpha"
+version = "v0.2.0"
 description = "CentriLearn: A Reinforcement Learning Framework for Complex Networks Tasks"
 readme = "README.md"
 requires-python = ">=3.11"
