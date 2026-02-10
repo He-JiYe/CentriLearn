@@ -20,6 +20,8 @@
 所有强化学习算法的基类。
 
 ```python
+from centrilearn.algorithms import BaseAlgorithm
+
 class BaseAlgorithm
 ```
 

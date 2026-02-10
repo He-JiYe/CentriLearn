@@ -4,6 +4,7 @@
 
 import random
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -217,3 +218,247 @@ class ReplayBuffer:
         if self.prioritized:
             return self.buffer[idx]
         return self.buffer[idx]
+
+
+@REPLAYBUFFERS.register_module()
+class VectorizedReplayBuffer:
+    """向量化回放缓冲区
+
+    管理单个 ReplayBuffer 实例，支持并行操作多个环境的回放缓冲区。
+
+    Attributes:
+        capacity: 缓冲区容量
+        n_step: N-step 回报的步数
+        gamma: 折扣因子
+        alpha: 优先度指数 (0 表示均匀采样，1 表示完全基于优先度)
+        beta_start: 重要性采样校正的初始 beta
+        beta_frames: beta 从 beta_start 到 1 的帧数
+        epsilon: 添加到优先度的最小值，防止零优先度
+        prioritized: 是否使用优先度采样
+        num_envs: 环境数量
+        executor: 线程池执行器
+    """
+
+    def __init__(
+        self,
+        capacity: int,
+        n_step: int = 1,
+        gamma: float = 0.99,
+        alpha: float = 0.6,
+        beta_start: float = 0.4,
+        beta_frames: int = 100000,
+        epsilon: float = 1e-6,
+        prioritized: bool = False,
+        env_num: int = 1,
+    ):
+        """初始化回放缓冲区
+
+        Args:
+            capacity: 缓冲区容量
+            n_step: N-step 回报的步数
+            gamma: 折扣因子
+            alpha: 优先度指数 (0 表示均匀采样，1 表示完全基于优先度)
+            beta_start: 重要性采样校正的初始 beta
+            beta_frames: beta 从 beta_start 到 1 的帧数
+            epsilon: 添加到优先度的最小值，防止零优先度
+            prioritized: 是否使用优先度采样
+            env_num: 环境数量
+        """
+        self.capacity = capacity
+        self.n_step = n_step
+        self.gamma = gamma
+        self.prioritized = prioritized
+        self.num_envs = env_num
+
+        if self.prioritized:
+            self.alpha = alpha
+            self.beta_start = beta_start
+            self.beta_frames = beta_frames
+            self.epsilon = epsilon
+            self.beta = beta_start
+            self.frame = 0
+            self.max_priority = 1.0
+            self.priorities = np.zeros(capacity)
+            self.buffer = [None] * capacity  # 初始化为固定大小列表
+            self.pos = 0
+            self.size = 0
+        else:
+            self.buffer = deque(maxlen=capacity)
+
+        # N-step 缓冲区
+        self.n_step_buffer = deque(maxlen=n_step)
+
+        # 创建线程池
+        self.executor = ThreadPoolExecutor(max_workers=env_num)
+
+    def push(
+        self,
+        states: List[Dict[str, Any]],
+        actions: List[int],
+        rewards: List[float],
+        next_states: List[Dict[str, Any]],
+        dones: List[bool],
+    ):
+        """添加经验
+
+        Args:
+            state: 当前状态列表
+            action: 执行的动作列表
+            reward: 获得的奖励列表
+            next_state: 下一状态列表
+            done: 是否终止列表
+        """
+        if len(states) != self.num_envs:
+            raise ValueError(
+                f"states 长度 {len(states)} 必须等于环境数量 {self.num_envs}"
+            )
+
+        def push_env(i):
+            # 添加到 N-step 缓冲区
+            self.n_step_buffer.append(
+                (states[i], actions[i], rewards[i], next_states[i], dones[i])
+            )
+
+            # 如果 N-step 缓冲区已满，计算 N-step 回报
+            if len(self.n_step_buffer) >= self.n_step:
+                (
+                    n_step_states,
+                    n_step_actions,
+                    n_step_rewards,
+                    n_step_next_states,
+                    n_step_dones,
+                ) = self._get_n_step_experience()
+
+                if self.prioritized:
+                    # 计算最大优先度（新经验的初始优先度）
+                    self.priorities[self.pos] = self.max_priority
+                    self.buffer[self.pos] = (
+                        n_step_states,
+                        n_step_actions,
+                        n_step_rewards,
+                        n_step_next_states,
+                        n_step_dones,
+                    )
+                    self.pos = (self.pos + 1) % self.capacity
+                    self.size = min(self.size + 1, self.capacity)
+                else:
+                    self.buffer.append(
+                        (
+                            n_step_states,
+                            n_step_actions,
+                            n_step_rewards,
+                            n_step_next_states,
+                            n_step_dones,
+                        )
+                    )
+
+        list(self.executor.map(push_env, range(self.num_envs)))
+
+    def _get_n_step_experience(self) -> Tuple:
+        """计算 N-step 回报
+
+        Returns:
+            N-step 经验元组
+        """
+        # 计算累积折扣奖励
+        n_step_reward = 0
+        for i in range(len(self.n_step_buffer)):
+            _, _, reward, _, done = self.n_step_buffer[i]
+            n_step_reward += (self.gamma**i) * reward
+            if done:
+                break
+
+        # 获取初始状态和动作
+        state, action, _, _, _ = self.n_step_buffer[0]
+
+        # 获取最后的下一状态
+        _, _, _, next_state, done = self.n_step_buffer[-1]
+
+        return state, action, n_step_reward, next_state, done
+
+    def sample(
+        self, batch_size: int
+    ) -> Tuple[List[Tuple], Optional[np.ndarray], Optional[np.ndarray]]:
+        """随机采样
+
+        Args:
+            batch_size: 批次大小
+
+        Returns:
+            采样的经验列表
+            如果使用优先度采样，还返回：
+            - indices: 采样的索引
+            - weights: 重要性采样权重
+        """
+        if self.prioritized:
+            # 更新 beta
+            self.frame += 1
+            self.beta = min(
+                1.0,
+                self.beta_start
+                + self.frame * (1.0 - self.beta_start) / self.beta_frames,
+            )
+
+            # 计算采样概率
+            priorities = self.priorities[: self.size]
+            probs = priorities**self.alpha
+            probs /= probs.sum()
+
+            # 采样
+            indices = np.random.choice(self.size, batch_size, p=probs)
+            weights = (self.size * probs[indices]) ** (-self.beta)
+            weights /= weights.max()  # 归一化
+
+            samples = [self.buffer[i] for i in indices]
+            return samples, indices, weights
+        else:
+            samples = random.sample(self.buffer, batch_size)
+            return samples, None, None
+
+    def update_priorities(self, indices: np.ndarray, priorities: np.ndarray):
+        """更新优先度
+
+        Args:
+            indices: 需要更新的索引
+            priorities: 新的优先度值
+        """
+        if not self.prioritized:
+            return
+
+        # 添加 epsilon 并应用 alpha
+        priorities = (priorities + self.epsilon) ** self.alpha
+
+        # 更新优先度
+        self.priorities[indices] = priorities
+        self.max_priority = max(self.max_priority, priorities.max())
+
+    def get_beta(self) -> float:
+        """获取当前 beta 值"""
+        return self.beta
+
+    def __len__(self) -> int:
+        """获取缓冲区大小"""
+        if self.prioritized:
+            return self.size
+        return len(self.buffer)
+
+    def clear(self):
+        """清空缓冲区"""
+        if self.prioritized:
+            self.priorities = np.zeros(self.capacity)
+            self.pos = 0
+            self.size = 0
+            self.max_priority = 1.0
+        else:
+            self.buffer.clear()
+
+    def __getitem__(self, idx: int):
+        """根据索引获取经验"""
+        if self.prioritized:
+            return self.buffer[idx]
+        return self.buffer[idx]
+
+    def __del__(self):
+        """清理资源，关闭线程池"""
+        if hasattr(self, "executor"):
+            self.executor.shutdown(wait=False)

@@ -135,9 +135,23 @@ def parse_args():
         "--is_valid", action="store_true", help="是否进行验证 (默认: False)"
     )
 
+    # 优化相关
+    parser.add_argument(
+        "--benchmark", action="store_false", help="启用 PyTorch 基准测试"
+    )
+    parser.add_argument(
+        "--deterministic", action="store_true", help="启用确定性模式"
+    )
+    parser.add_argument(
+        "--memory_efficient", action="store_true", help="启用内存高效模式"
+    )
+
     # Checkpoint 相关
     parser.add_argument(
-        "--ckpt_dir", type=str, default="./ckpt", help="模型保存目录 (默认: ./ckpt)"
+        "--ckpt_dir",
+        type=str,
+        default="./checkpoints",
+        help="模型保存目录 (默认: ./checkpoints)",
     )
     parser.add_argument(
         "--resume", type=str, default=None, help="从指定 checkpoint 恢复训练"
@@ -192,7 +206,25 @@ def main():
         config["training"].update(update_dict)
         logger.info(f"命令行参数覆盖: {update_dict}")
 
-    # 4. 开始训练
+    # 4. 设置性能优化
+    if verbose:
+        print(f"\n[性能优化] 启用 PyTorch 性能优化配置")
+
+    try:
+        from centrilearn.utils.performance import \
+            setup_performance_optimizations
+
+        setup_performance_optimizations(
+            device=config["algorithm"].get("device", "cuda"),
+            benchmark=args.benchmark,
+            deterministic=args.deterministic,
+            memory_efficient=args.memory_efficient,
+        )
+    except ImportError:
+        if verbose:
+            print("  警告: 性能优化模块不可用，使用默认配置")
+
+    # 5. 开始训练
     from centrilearn.utils.train import train_from_cfg
 
     try:

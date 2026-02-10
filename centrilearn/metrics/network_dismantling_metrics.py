@@ -77,7 +77,7 @@ class AUC(BaseMetric):
 
                     action = random.randint(0, env.num_nodes - 1)
 
-                next_state, reward, done, info = env.step(action, state["mapping"])
+                next_state, reward, done, info = env.step(action)
                 info["lcc_size"], info["num_nodes"] = env.lcc_size[-1], env.num_nodes
                 self.process(state, action, reward, next_state, done, info)
 
@@ -161,7 +161,7 @@ class AttackRate(BaseMetric):
 
                     action = random.randint(0, env.num_nodes - 1)
 
-                next_state, reward, done, info = env.step(action, state["mapping"])
+                next_state, reward, done, info = env.step(action)
                 info["num_nodes"] = env.num_nodes
                 self.process(state, action, reward, next_state, done, info)
 

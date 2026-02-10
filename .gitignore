@@ -17,7 +17,6 @@ data/
 notebooks/
 
 # tests models
-tests/
 .pytest_cache/
 
 # Checkpoints and models
@@ -32,6 +31,7 @@ logs/
 
 # IDE
 .vscode/
+.trae/
 .idea/
 *.swp
 *.swo

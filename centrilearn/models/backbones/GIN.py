@@ -102,9 +102,15 @@ class GIN(BasicGNN):
         assert info.get("edge_index") is not None, "Edge indices are required"
         assert info.get("batch") is not None, "Batch assignment is required"
 
-        x, edge_index, batch = info["x"], info["edge_index"], info["batch"]
+        x, edge_index, batch, graph_embed = (
+            info["x"],
+            info["edge_index"],
+            info["batch"],
+            None,
+        )
 
         batch_size = batch.max().item() + 1 if batch is not None else 1
+        batch_indices = torch.arange(batch_size, device=x.device)
 
         for i, (conv, norm) in enumerate(zip(self.convs, self.norms)):
             # Update the graph embeddings first
@@ -123,7 +129,7 @@ class GIN(BasicGNN):
                 if self.supports_norm_batch:
                     current_graph_embed = norm(
                         current_graph_embed,
-                        torch.arange(batch_size, device=x.device),
+                        batch_indices,
                         batch_size,
                     )
                 else:

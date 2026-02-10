@@ -45,6 +45,7 @@ environment:
     min_n: 30
     max_n: 50
     m: 4
+  env_num: 4
   is_undirected: True
   value_type: ar
   use_gcc: False

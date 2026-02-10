@@ -28,10 +28,10 @@ class BaseEnv(ABC):
 
     def __init__(
         self,
-        graph: nx.Graph = None,
+        graph: Optional[nx.Graph] = None,
         node_features: str = "ones",
         synth_type: str = "ba",
-        synth_args: Dict[str, Any] = None,
+        synth_args: Optional[Dict[str, Any]] = None,
         use_component: bool = False,
         is_undirected: bool = True,
         device: str = "cpu",
@@ -91,6 +91,7 @@ class BaseEnv(ABC):
             self.edge_index = to_undirected(self.edge_index, num_nodes=self.num_nodes)
 
         self.node_mask = torch.ones(self.num_nodes, dtype=bool, device=self.device)
+        self.step_count = 0
 
         # 重置剩余统计信息
         self._reset()
@@ -98,13 +99,12 @@ class BaseEnv(ABC):
         return self.get_state()
 
     @abstractmethod
-    def _reset(self):
+    def _reset(self) -> None:
         """
         重置剩余统计信息
         """
         pass
 
-    @abstractmethod
     def step(self, action: int) -> Tuple[float, bool, Dict[str, Any]]:
         """执行一步环境交互
 
@@ -116,6 +116,12 @@ class BaseEnv(ABC):
             done: 是否终止
             info: 额外信息字典
         """
+        self.step_count += 1
+        return self._step_impl(action)
+
+    @abstractmethod
+    def _step_impl(self, action: int) -> Tuple[float, bool, Dict[str, Any]]:
+        """子类需要实现的具体步骤逻辑"""
         pass
 
     @abstractmethod
@@ -149,6 +155,7 @@ class BaseEnv(ABC):
 
         # 获取剩余图节点索引
         mapping = node_mask.nonzero(as_tuple=False).view(-1)
+        self.mapping = mapping
 
         edge_index, _ = subgraph(
             mapping, self.edge_index, relabel_nodes=True, num_nodes=self.num_nodes
@@ -184,9 +191,11 @@ class BaseEnv(ABC):
         parent = torch.arange(num_nodes, device=self.device)
 
         def find(x):
-            if parent[x] != x:
-                parent[x] = find(parent[x])
-            return parent[x]
+            # 迭代实现路径压缩
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
 
         def union(x, y):
             root_x = find(x)
@@ -216,7 +225,7 @@ class BaseEnv(ABC):
         Returns:
             是否为空图
         """
-        return len(self.graph.nodes()) == 0
+        return self.node_mask.sum() == 0
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(nodes={self.graph.number_of_nodes()}, edges={self.graph.number_of_edges()})"

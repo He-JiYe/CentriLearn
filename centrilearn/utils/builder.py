@@ -415,7 +415,40 @@ def build_environment(cfg: Dict, default_args: Dict = None):
         from ..environments import VectorizedEnv
 
         env_kwargs_list = cfg.get("env_kwargs_list", [])
-        return VectorizedEnv(env_class, env_kwargs_list)
+        env_num = cfg.get("env_num", None)
+        return VectorizedEnv(env_class, env_kwargs_list, env_num)
+
+    # 支持单环境配置 + env_num 的方式创建向量化环境
+    if (
+        cfg.get("env_num", 1) > 1
+        and not cfg.get("graph_list")
+        and not cfg.get("graph_files_list")
+        and not cfg.get("env_kwargs_list")
+    ):
+        from ..environments import VectorizedEnv
+
+        # 提取环境配置，去除不需要的键
+        env_kwargs = cfg.copy()
+        env_kwargs.pop("type", None)
+        env_kwargs.pop("env_num", None)
+        env_kwargs.pop("graph_file", None)
+
+        # 处理图文件
+        if cfg.get("graph_file"):
+            from networkx import read_edgelist
+
+            env_kwargs["graph"] = read_edgelist(cfg.get("graph_file"), nodetype=int)
+
+        # 处理默认图
+        if env_kwargs.get("graph") is None:
+            from random import randint
+
+            from networkx import barabasi_albert_graph
+
+            n = randint(40, 60)
+            env_kwargs["graph"] = barabasi_albert_graph(n, 3)
+
+        return VectorizedEnv(env_class, [env_kwargs], cfg.get("env_num"))
 
     if cfg.get("graph_file"):
         from networkx import read_edgelist
@@ -461,7 +494,21 @@ def build_replaybuffer(cfg: Union[Dict, List], default_args: Dict = None):
     """
     if isinstance(cfg, list):
         return [build_from_cfg(_cfg, REPLAYBUFFERS, default_args) for _cfg in cfg]
-    return build_from_cfg(cfg, REPLAYBUFFERS, default_args)
+
+    # 检查是否需要创建向量化缓冲区
+    env_num = cfg.get("env_num", 1)
+    buffer_type = cfg.get("type", "")
+
+    if env_num > 1:
+        # 创建向量化缓冲区
+        if buffer_type == "ReplayBuffer":
+            cfg["type"] = "VectorizedReplayBuffer"
+        elif buffer_type == "RolloutBuffer":
+            cfg["type"] = "VectorizedRolloutBuffer"
+        return build_from_cfg(cfg, REPLAYBUFFERS, default_args)
+    else:
+        cfg.pop("env_num")
+        return build_from_cfg(cfg, REPLAYBUFFERS, default_args)
 
 
 def build_metric(cfg: Union[Dict, List], default_args: Dict = None):
@@ -490,23 +537,35 @@ def build_metric_manager(cfg: Dict = None):
                     {'type': 'SuccessRate', 'threshold': 0.8}
                 ],
                 'save_dir': './logs',  # 可选
-                'log_interval': 100  # 可选
+                'log_interval': 100,  # 可选
+                'num_env': 1  # 环境数量，默认为 1
             }
             如果 cfg 为 None，返回 None
 
     Returns:
-        MetricManager 实例或 None
+        MetricManager 实例或 VectorizedMetricManager 实例或 None
     """
     if cfg is None:
         return None
 
-    from ..metrics.manager import MetricManager
-
     metrics_cfg = cfg.get("metrics", [])
     metrics = [build_metric(m_cfg) for m_cfg in metrics_cfg] if metrics_cfg else []
+    num_env = cfg.get("num_env", 1)
 
-    return MetricManager(
-        metrics=metrics,
-        save_dir=cfg.get("save_dir"),
-        log_interval=cfg.get("log_interval", 100),
-    )
+    if num_env > 1:
+        from ..metrics.manager import VectorizedMetricManager
+
+        return VectorizedMetricManager(
+            env_num=num_env,
+            metrics=metrics,
+            save_dir=cfg.get("save_dir"),
+            log_interval=cfg.get("log_interval", 100),
+        )
+    else:
+        from ..metrics.manager import MetricManager
+
+        return MetricManager(
+            metrics=metrics,
+            save_dir=cfg.get("save_dir"),
+            log_interval=cfg.get("log_interval", 100),
+        )

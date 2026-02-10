@@ -2,6 +2,7 @@
 轨迹缓冲区
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 
 import numpy as np
@@ -34,9 +35,9 @@ class RolloutBuffer:
         self,
         state: Dict[str, Any],
         action: torch.Tensor,
-        log_prob: torch.Tensor,
         reward: float,
         done: bool,
+        log_prob: torch.Tensor,
         value: torch.Tensor,
     ):
         """添加经验
@@ -137,7 +138,14 @@ class RolloutBuffer:
         advantages = torch.zeros(len(returns))
         running_advantage = 0
 
-        values = torch.tensor(self.values).squeeze(-1)
+        # 处理 values，确保它们是标量值
+        values = []
+        for v in self.values:
+            if isinstance(v, torch.Tensor):
+                values.append(v.item())
+            else:
+                values.append(v)
+        values = torch.tensor(values)
 
         for t in reversed(range(len(returns))):
             if t == len(returns) - 1:
@@ -166,3 +174,119 @@ class RolloutBuffer:
 
     def __len__(self) -> int:
         return len(self.states)
+
+
+@REPLAYBUFFERS.register_module()
+class VectorizedRolloutBuffer:
+    """向量化轨迹缓冲区
+
+    管理多个 RolloutBuffer 实例，支持并行操作多个环境的轨迹缓冲区。
+
+    Attributes:
+        buffers: 缓冲区实例列表
+        num_envs: 环境数量
+        executor: 线程池执行器
+    """
+
+    def __init__(self, env_num: int, capacity: int):
+        """初始化向量化轨迹缓冲区
+
+        Args:
+            env_num: 环境数量
+            capacity: 每个缓冲区的容量
+        """
+        self.num_envs = env_num
+        self.capacity = capacity
+
+        # 为每个环境创建一个 RolloutBuffer 实例
+        self.buffers = []
+        for _ in range(env_num):
+            buffer = RolloutBuffer(capacity=capacity)
+            self.buffers.append(buffer)
+
+        # 创建线程池
+        self.executor = ThreadPoolExecutor(max_workers=env_num)
+
+    def push(
+        self,
+        states: List[Dict[str, Any]],
+        actions: List[torch.Tensor],
+        rewards: List[float],
+        dones: List[bool],
+        log_probs: List[torch.Tensor],
+        values: List[torch.Tensor],
+    ):
+        """批量添加经验
+
+        Args:
+            states: 当前状态列表
+            actions: 执行的动作列表
+            log_probs: 动作对数概率列表
+            rewards: 获得的奖励列表
+            dones: 是否终止列表
+            values: 状态价值估计列表
+        """
+        if len(states) != self.num_envs:
+            raise ValueError(
+                f"states 长度 {len(states)} 必须等于环境数量 {self.num_envs}"
+            )
+
+        # 并行添加经验到每个缓冲区
+        def push_env(i):
+            self.buffers[i].push(
+                state=states[i],
+                action=actions[i],
+                log_prob=log_probs[i],
+                reward=rewards[i],
+                done=dones[i],
+                value=values[i],
+            )
+
+        list(self.executor.map(push_env, range(self.num_envs)))
+
+    def get_batches(
+        self, batch_size: int, gamma: float = 0.99, gae_lambda: float = 0.95
+    ) -> List[Dict[str, torch.Tensor]]:
+        """从所有缓冲区获取训练批次，计算 GAE 优势
+
+        Args:
+            batch_size: 批次大小
+            gamma: 折扣因子
+            gae_lambda: GAE lambda 参数
+
+        Returns:
+            批次数据列表
+        """
+
+        # 并行从每个缓冲区获取批次
+        def get_buffer_batches(i):
+            return self.buffers[i].get_batches(batch_size, gamma, gae_lambda)
+
+        results = list(self.executor.map(get_buffer_batches, range(self.num_envs)))
+
+        # 合并结果
+        all_batches = []
+        for batches in results:
+            all_batches.extend(batches)
+
+        return all_batches
+
+    def clear(self):
+        """清空所有缓冲区"""
+
+        def clear_buffer(buffer):
+            buffer.clear()
+
+        list(self.executor.map(clear_buffer, self.buffers))
+
+    def __len__(self) -> int:
+        """返回所有缓冲区的总经验数"""
+        return sum(len(buffer) for buffer in self.buffers)
+
+    def __repr__(self) -> str:
+        return f"VectorizedRolloutBuffer(num_envs={self.num_envs}, capacity={self.capacity})"
+
+    def __del__(self):
+        """清理资源，关闭线程池"""
+        if hasattr(self, "executor"):
+            self.executor.shutdown(wait=False)

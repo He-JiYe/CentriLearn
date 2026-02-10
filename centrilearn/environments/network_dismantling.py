@@ -47,9 +47,7 @@ class NetworkDismantlingEnv(BaseEnv):
         self.remove_nodes = []
         self.lcc_size = [1]
 
-    def step(
-        self, action: int, mapping: Dict[int, int]
-    ) -> Tuple[float, bool, Dict[str, Any]]:
+    def _step_impl(self, action: int) -> Tuple[float, bool, Dict[str, Any]]:
         """执行一步动作
 
         Args:
@@ -63,7 +61,7 @@ class NetworkDismantlingEnv(BaseEnv):
         """
 
         # 移除节点
-        self.remove_node(action, mapping)
+        self.remove_node(action)
 
         next_state = self.get_state()
 
@@ -73,7 +71,10 @@ class NetworkDismantlingEnv(BaseEnv):
             reward = -1 / self.num_nodes
 
         done = self.is_empty() or self.lcc() <= 1
-        info = {}
+        info = {
+            "lcc_size": self.lcc_size[-1],
+            "num_nodes": self.num_nodes,
+        }
 
         return next_state, reward, done, info
 
@@ -115,9 +116,9 @@ class NetworkDismantlingEnv(BaseEnv):
         lcc = torch.bincount(components).max()[0]
         return components.eq(lcc)
 
-    def remove_node(self, node: int, mapping: Dict[int, int]):
+    def remove_node(self, node: int):
         """移除节点 node"""
-        masked_node = mapping[node]
+        masked_node = self.mapping[node]
         self.node_mask[masked_node] = False
 
         self.remove_nodes.append(masked_node)

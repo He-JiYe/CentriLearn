@@ -26,7 +26,7 @@
 #### 初始化
 
 ```python
-from src.algorithms import BaseAlgorithm
+from centrilearn.algorithms import BaseAlgorithm
 
 algorithm = BaseAlgorithm(
     model=model,                      # 模型实例
@@ -71,7 +71,7 @@ DQN 是基于价值的强化学习算法，使用 Q-network 学习状态-动作�
 #### 初始化
 
 ```python
-from src.utils import build_algorithm
+from centrilearn.utils import build_algorithm
 
 algo_cfg = {
     'type': 'DQN',
@@ -289,7 +289,7 @@ for episode in range(num_episodes):
 #### 初始化
 
 ```python
-from src.environments import BaseEnv
+from centrilearn.environments import BaseEnv
 
 env = BaseEnv(
     graph=None,                     # networkx.Graph 实例
@@ -325,7 +325,7 @@ is_empty = env.is_empty()
 #### 初始化
 
 ```python
-from src.utils import build_environment
+from centrilearn.utils import build_environment
 
 # 使用真实图
 import networkx as nx
@@ -474,7 +474,7 @@ num_envs = len(venv)
 #### GraphSAGE
 
 ```python
-from src.utils import build_backbone
+from centrilearn.utils import build_backbone
 
 backbone_cfg = {
     'type': 'GraphSAGE',
@@ -567,7 +567,7 @@ backbone = build_backbone(backbone_cfg)
 #### QHead (Q 值头)
 
 ```python
-from src.utils import build_head
+from centrilearn.utils import build_head
 
 q_head_cfg = {
     'type': 'QHead',
@@ -630,7 +630,7 @@ mlp_head = build_head(mlp_head_cfg)
 #### Qnet
 
 ```python
-from src.utils import build_network_dismantler
+from centrilearn.utils import build_network_dismantler
 
 model_cfg = {
     'type': 'Qnet',
@@ -695,7 +695,7 @@ DQN 使用的经验回放缓冲区。
 #### 初始化
 
 ```python
-from src.utils import build_replaybuffer
+from centrilearn.utils import build_replaybuffer
 
 buffer_cfg = {
     'type': 'ReplayBuffer',
@@ -801,7 +801,7 @@ buffer.clear()
 #### 使用示例
 
 ```python
-from src.metrics import BaseMetric
+from centrilearn.metrics import BaseMetric
 
 class CustomMetric(BaseMetric):
     def __init__(self):
@@ -827,7 +827,7 @@ class CustomMetric(BaseMetric):
 #### 初始化
 
 ```python
-from src.utils import build_metric
+from centrilearn.utils import build_metric
 
 metric_cfg = {
     'type': 'AUC',
@@ -861,7 +861,7 @@ metric = build_metric(metric_cfg)
 #### 初始化
 
 ```python
-from src.utils import build_metric_manager
+from centrilearn.utils import build_metric_manager
 
 manager_cfg = {
     'metrics': [
@@ -920,7 +920,7 @@ manager.reset()
 #### 使用示例
 
 ```python
-from src.utils.registry import BACKBONES
+from centrilearn.utils.registry import BACKBONES
 
 # 注册自定义模块
 @BACKBONES.register_module()
@@ -938,7 +938,7 @@ backbone = build_backbone({'type': 'MyBackbone', ...})
 #### build_optimizer
 
 ```python
-from src.utils import build_optimizer
+from centrilearn.utils import build_optimizer
 
 optimizer_cfg = {
     'type': 'Adam',
@@ -954,7 +954,7 @@ optimizer = build_optimizer(model, optimizer_cfg)
 #### build_scheduler
 
 ```python
-from src.utils import build_scheduler
+from centrilearn.utils import build_scheduler
 
 scheduler_cfg = {
     'type': 'CosineAnnealingLR',
@@ -974,7 +974,7 @@ scheduler = build_scheduler(optimizer, scheduler_cfg)
 #### build_from_cfg
 
 ```python
-from src.utils import build_from_cfg
+from centrilearn.utils import build_from_cfg
 from src.utils.registry import BACKBONES
 
 cfg = {
@@ -993,7 +993,7 @@ backbone = build_from_cfg(cfg, BACKBONES)
 
 ```python
 import yaml
-from src.utils import train_from_cfg
+from centrilearn.utils import train_from_cfg
 
 # 加载配置文件
 with open('configs/network_dismantling/dqn.yaml', 'r') as f:
