@@ -1,29 +1,32 @@
-# configs/dqn.yaml
+# configs/FINDER.yaml
 
 algorithm:
   type: DQN
-  model:
+  model_cfg:
     type: Qnet
     backbone_cfg:
       type: GraphSAGE
-      in_channels: 2
+      in_channels: 1
       hidden_channels: 64
       num_layers: 3
     q_head_cfg:
       type: QHead
       in_channels: 128
   optimizer_cfg:
-    type: Adam
-    lr: 0.0001
+    type: AdamW
+    lr: 0.001
     weight_decay: 0.0005
   replaybuffer_cfg:
     type: ReplayBuffer
     capacity: 10000
     n_step: 5
     prioritized: False
+  scheduler_cfg:
+    type: "LinearLR"
+    start_factor: 1
+    end_factor: 0.01
+    total_iters: 1000
   metric_manager_cfg:
-    save_dir: ./logs/metrics
-    log_interval: 10
     metrics:
       - type: AUC
         record: min
@@ -39,24 +42,28 @@ algorithm:
 
 environment:
   type: NetworkDismantlingEnv
-  node_features: combin
+  node_features: degree
+  node_dim: 1
   synth_type: ba
   synth_args:
     min_n: 30
     max_n: 50
     m: 4
   is_undirected: True
-  value_type: ar
-  use_gcc: False
+  value_type: auc
   use_component: False
   device: cuda
 
 training:
+  seed: 42
+  use_gcc: False
   num_episodes: 1000
   batch_size: 32
-  max_steps: 1000
+  max_steps: 10000
   log_interval: 10
-  eval_interval: 1000
-  eval_episodes: 1
-  save_path: ./checkpoints/dqn
   save_interval: 100
+
+test:
+  seed: 42
+  data_dir: .\data\small
+  use_gcc: True

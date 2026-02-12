@@ -1,40 +1,40 @@
 """
-Proximal Policy Optimization (PPO) 算法实现
-适用于网络瓦解等离散动作空间任务
+Proximal Policy Optimization (PPO) Implementation
+For discrete action space tasks like network dismantling
 """
 
+import time
 from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Batch
-from torch_scatter import scatter_log_softmax, scatter_softmax
+from torch_scatter import scatter_log_softmax, scatter_mean, scatter_softmax
+from tqdm import tqdm
 
+from centrilearn.algorithms.base import BaseAlgorithm
+from centrilearn.models.loss import reconstruction_loss
 from centrilearn.utils import ALGORITHMS, build_network_dismantler
-
-from .base import BaseAlgorithm
 
 
 @ALGORITHMS.register_module()
 class PPO(BaseAlgorithm):
-    """Proximal Policy Optimization 算法
-
-    实现 Actor-Critic 架构的 PPO-Clip 算法。
+    """Proximal Policy Optimization with Actor-Critic architecture.
 
     Args:
-        model: Actor-Critic 模型实例 或 模型配置字典
-        optimizer_cfg: 优化器配置
-        scheduler_cfg: 学习率调度器配置
-        replaybuffer_cfg: 轨迹缓冲区配置
-        metric_manager_cfg: 指标管理器配置
-        algo_cfg: 算法配置
-        device: 运行设备
+        model_cfg: Actor-Critic model configuration
+        optimizer_cfg: Optimizer configuration
+        replaybuffer_cfg: Rollout buffer configuration
+        algo_cfg: PPO algorithm configuration (gamma, gae_lambda, clip_epsilon, etc.)
+        scheduler_cfg: Learning rate scheduler configuration (optional)
+        metric_manager_cfg: Metric manager configuration (optional)
+        device: Device to run on
     """
 
     def __init__(
         self,
-        model: Union[nn.Module, Dict[str, Any]],
+        model_cfg: Dict[str, Any],
         optimizer_cfg: Dict[str, Any],
         replaybuffer_cfg: Dict[str, Any],
         algo_cfg: Dict[str, Any],
@@ -42,19 +42,18 @@ class PPO(BaseAlgorithm):
         metric_manager_cfg: Optional[Dict[str, Any]] = None,
         device: str = "cpu",
     ):
-        """初始化 PPO 算法"""
-        # 超参数
+        """Initialize PPO algorithm."""
         self.gamma = algo_cfg.get("gamma", 0.99)
         self.gae_lambda = algo_cfg.get("gae_lambda", 0.95)
         self.clip_epsilon = algo_cfg.get("clip_epsilon", 0.2)
         self.entropy_coef = algo_cfg.get("entropy_coef", 0.01)
-        self.value_coef = algo_cfg.get("value_coef", 0.5)
-        self.max_grad_norm = algo_cfg.get("max_grad_norm", 0.5)
-        self.num_epochs = algo_cfg.get("num_epochs", 10)
+        self.value_coef = algo_cfg.get("value_coef", 1)
+        self.rcst_coef = algo_cfg.get("rcst_coef", 0.0001)
+        self.max_grad_norm = algo_cfg.get("max_grad_norm", 1)
+        self.num_epochs = algo_cfg.get("num_epochs", 2)
 
-        # 调用父类初始化（支持模型配置）
         super().__init__(
-            model,
+            model_cfg,
             optimizer_cfg,
             scheduler_cfg,
             replaybuffer_cfg,
@@ -63,29 +62,29 @@ class PPO(BaseAlgorithm):
         )
 
     def _build_model(self, model_cfg: Dict[str, Any]) -> nn.Module:
-        """从配置构建模型
+        """Build model from configuration.
 
         Args:
-            model_cfg: 模型配置字典
+            model_cfg: Model configuration dictionary
 
         Returns:
-            构建好的模型实例
+            Built model instance
         """
         return build_network_dismantler(model_cfg)
 
-    def _select_action_single(
+    def select_action(
         self, state: Dict[str, Any], **kwargs
     ) -> Tuple[Union[torch.Tensor, int], ...]:
-        """为单个环境选择动作
+        """Select action based on current policy.
 
         Args:
-            state: 当前状态
-            **kwargs: 算法特定的参数（如 deterministic）
+            state: Current state
+            **kwargs: Algorithm-specific parameters (e.g., deterministic)
 
         Returns:
-            action: 选择的动作
-            log_prob: 动作对数概率
-            value: 状态价值（标量）
+            action: Selected action
+            log_prob: Log probability of the action
+            value: Estimated state value
         """
         deterministic = kwargs.get("deterministic", False)
         self.set_eval_mode()
@@ -106,147 +105,190 @@ class PPO(BaseAlgorithm):
                 }
             )
 
-            logit = output["logit"].squeeze()
-            value = output["v_values"].squeeze()
+            logit = output["logit"].view(-1)
+            value = output["v_values"].view(-1)
 
             if deterministic:
-                # 确定性策略：选择概率最大的动作
                 action = torch.argmax(logit, dim=0)
                 log_prob = F.log_softmax(logit, dim=0)[action]
             else:
-                # 随机策略：按概率采样
                 probs = F.softmax(logit, dim=0)
-                action = torch.multinomial(probs, 1)
+                action = torch.multinomial(probs, 1).squeeze(0)
                 log_prob = F.log_softmax(logit, dim=0)[action]
 
         return action.item(), log_prob.item(), value.item()
 
     def collect_experience(self, state: Dict[str, Any], *args, **kwargs):
-        """收集经验到轨迹缓冲区
+        """Collect experience to rollout buffer.
 
         Args:
-            state: 当前状态
-            *args: 其他必需参数（action, log_prob, reward, done, value）
-            **kwargs: 可选参数
+            state: Current state
+            *args: Other required args (action, next_state, reward, done, log_prob, value)
+            **kwargs: Optional args
         """
-        action, reward, _, done, log_prob, value = args
-        self.replay_buffer.push(state, action, reward, done, log_prob, value)
+        action, next_state, reward, done, log_prob, value = args
+        self.replay_buffer.push(
+            state, action, next_state, reward, done, log_prob, value
+        )
 
     def update(self, batch_size: int = 64) -> Dict[str, float]:
-        """更新模型
+        """Update the model with collected experiences.
 
         Args:
-            batch_size: 批次大小
+            batch_size: Batch size for training
 
         Returns:
-            训练指标字典
+            Dictionary of training metrics
         """
-        if len(self.replay_buffer) == 0:
-            return {"policy_loss": 0.0, "value_loss": 0.0, "entropy_loss": 0.0}
-
-        # 获取训练批次
-        batches = self.replay_buffer.get_batches(
-            batch_size=batch_size, gamma=self.gamma, gae_lambda=self.gae_lambda
-        )
+        batches = self.replay_buffer.get_batches()
 
         self.set_train_mode()
 
         total_policy_loss = 0
         total_value_loss = 0
         total_entropy_loss = 0
+        total_rcst_loss = 0
+        total_grad = 0
         num_updates = 0
 
-        # 多轮更新
+        states = Batch.from_data_list([i["pyg_data"] for i in batches["states"]]).to(
+            self.device
+        )
+        actions = torch.as_tensor(
+            batches["actions"], dtype=torch.long, device=self.device
+        )
+        next_states = Batch.from_data_list(
+            [i["pyg_data"] for i in batches["next_states"]]
+        ).to(self.device)
+        rewards = torch.as_tensor(
+            batches["rewards"], dtype=torch.float, device=self.device
+        )
+        dones = torch.as_tensor(batches["dones"], dtype=torch.float, device=self.device)
+        old_log_probs = torch.as_tensor(
+            batches["old_log_probs"], dtype=torch.float, device=self.device
+        )
+
+        transitions_length = len(batches["states"])
+
         for _ in range(self.num_epochs):
-            for batch in batches:
-                # 前向传播
-                policy_loss_epoch = 0
-                value_loss_epoch = 0
-                entropy_loss_epoch = 0
+            with torch.no_grad():
+                values = self.model(
+                    {
+                        "x": states.x,
+                        "edge_index": states.edge_index,
+                        "batch": states.get(
+                            "batch",
+                            torch.zeros(
+                                states.x.shape[0], dtype=torch.long, device=self.device
+                            ),
+                        ),
+                        "component": states.get("component"),
+                    }
+                )["v_values"].view(-1)
+                next_values = self.model(
+                    {
+                        "x": next_states.x,
+                        "edge_index": next_states.edge_index,
+                        "batch": next_states.get(
+                            "batch",
+                            torch.zeros(
+                                next_states.x.shape[0],
+                                dtype=torch.long,
+                                device=self.device,
+                            ),
+                        ),
+                        "component": next_states.get("component"),
+                    }
+                )["v_values"].view(-1)
 
-                state_info = Batch.from_data_list(
-                    [i["pyg_data"] for i in batch["states"]]
+                td_targets = rewards + self.gamma * next_values * (1 - dones)
+                td_errors = td_targets - values
+
+                advantage_list = []
+                advantage = 0.0
+                for delta, done in zip(td_errors.flip(0), dones.flip(0)):
+                    advantage = (
+                        self.gamma * self.gae_lambda * advantage * (1 - done) + delta
+                    )
+                    advantage_list.append(advantage)
+                advantages = torch.stack(advantage_list[::-1]).to(td_errors.device)
+
+            indices = torch.randperm(transitions_length).to(self.device)
+            for start in range(0, transitions_length, batch_size):
+                end = start + batch_size
+                batch = indices[start:end]
+
+                states_b = Batch.from_data_list(
+                    [batches["states"][i]["pyg_data"] for i in batch]
                 ).to(self.device)
-                actions = torch.as_tensor(
-                    batch["actions"], dtype=torch.long, device=self.device
-                )
-                old_log_probs = torch.as_tensor(
-                    batch["old_log_probs"], dtype=torch.float, device=self.device
-                )
-                returns = torch.as_tensor(
-                    batch["returns"], dtype=torch.float, device=self.device
-                )
-                advantages = torch.as_tensor(
-                    batch["advantages"], dtype=torch.float, device=self.device
-                )
-                old_values = torch.as_tensor(
-                    batch["old_values"], dtype=torch.float, device=self.device
-                )
+                actions_b = actions[batch]
+                old_log_probs_b = old_log_probs[batch]
+                advantage_b = advantages[batch]
+                td_target_b = td_targets[batch]
 
-                # 前向传播
-                batch_indices = state_info.get(
-                    "batch", torch.zeros(state_info.x.shape[0], dtype=torch.long)
+                actions_b = actions_b + states_b.ptr[:-1]
+
+                batch_indices = states_b.get(
+                    "batch", torch.zeros(states_b.x.shape[0], dtype=torch.long)
                 )
                 output = self.model(
                     {
-                        "x": state_info.x,
-                        "edge_index": state_info.edge_index,
+                        "x": states_b.x,
+                        "edge_index": states_b.edge_index,
                         "batch": batch_indices,
-                        "component": state_info.get("component"),
+                        "component": states_b.get("component"),
                     }
                 )
+                new_logit = output["logit"].view(-1)
+                new_value = output["v_values"].view(-1)
 
-                new_logit = output["logit"].squeeze()
-                new_value = output["v_values"].squeeze()
-
-                # 计算 ratio
                 log_prob = scatter_log_softmax(new_logit, batch_indices, dim=0)
-                new_log_prob = log_prob[actions]
-                ratio = torch.exp(new_log_prob - old_log_probs)
+                ratio = torch.exp(log_prob[actions_b] - old_log_probs_b)
 
-                # 计算 PPO loss
-                surr1 = ratio * advantages
+                surr1 = ratio * advantage_b
                 surr2 = (
                     torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon)
-                    * advantages
+                    * advantage_b
                 )
                 policy_loss_epoch = -torch.min(surr1, surr2).mean()
 
-                # 计算 value loss
-                value_clipped = old_values + torch.clamp(
-                    new_value - old_values, -self.clip_epsilon, self.clip_epsilon
-                )
-                value_loss1 = F.mse_loss(new_value, returns.squeeze(), reduction="none")
-                value_loss2 = F.mse_loss(value_clipped, returns, reduction="none")
-                value_loss_epoch = torch.max(value_loss1, value_loss2).mean()
+                value_loss_epoch = F.smooth_l1_loss(new_value, td_target_b)
 
-                # 计算熵损失
                 probs = scatter_softmax(new_logit, batch_indices, dim=0)
-                entropy_loss_epoch = -torch.sum(probs * log_prob)
+                entropy_loss_epoch = -scatter_mean(
+                    probs * log_prob, batch_indices
+                ).mean()
 
-                # 合并 losses
+                rcst_loss_epoch = reconstruction_loss(
+                    output["node_embed"],
+                    output["edge_index"],
+                    states_b.ptr,
+                    device=self.device,
+                )
+
                 policy_loss = policy_loss_epoch
                 value_loss = self.value_coef * value_loss_epoch
                 entropy_loss = -self.entropy_coef * entropy_loss_epoch
+                rcst_loss = self.rcst_coef * rcst_loss_epoch
+                total_loss = policy_loss + value_loss * 10 + entropy_loss + rcst_loss
 
-                total_loss = policy_loss + value_loss + entropy_loss
-
-                # 反向传播
                 self.optimizer.zero_grad()
                 total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(
+                grad = torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(), self.max_grad_norm
                 )
                 self.optimizer.step()
+                if self.scheduler:
+                    self.scheduler.step()
 
                 total_policy_loss += policy_loss.item()
                 total_value_loss += value_loss.item()
                 total_entropy_loss += entropy_loss.item()
+                total_rcst_loss += rcst_loss.item()
+                total_grad += grad.item()
                 num_updates += 1
 
         self.training_step += num_updates
-
-        # 清空缓冲区
         self.replay_buffer.clear()
 
         return {
@@ -255,47 +297,218 @@ class PPO(BaseAlgorithm):
             "entropy_loss": (
                 total_entropy_loss / num_updates if num_updates > 0 else 0.0
             ),
-            "training_step": self.training_step,
+            "rcst_loss": total_rcst_loss / num_updates if num_updates > 0 else 0.0,
+            "grad": total_grad / num_updates if num_updates > 0 else 0.0,
         }
 
-    def train_step(self, batch: Dict[str, Any]) -> Dict[str, float]:
-        """执行一步训练（兼容基类接口）
+    def learn(
+        self,
+        env: Any,
+        training_cfg: Dict[str, Any],
+        verbose: bool = True,
+        logger=None,
+        tensorboard_writer=None,
+    ) -> Dict[str, Any]:
+        """PPO training loop.
 
         Args:
-            batch: 训练数据批次
+            env: Environment instance
+            training_cfg: Training configuration
+            verbose: Whether to print logs
+            logger: Logger object
+            tensorboard_writer: TensorBoard writer object
 
         Returns:
-            训练指标字典
+            Training results dictionary
         """
-        return self.update(batch.get("batch_size", 64))
+        use_gcc = training_cfg.get("use_gcc", False)
+        num_episodes = training_cfg.get("num_episodes", 5000)
+        num_update = training_cfg.get("num_update", 10)
+        max_steps = training_cfg.get("max_steps", 1000)
+        batch_size = training_cfg.get("batch_size", 64)
+        log_interval = training_cfg.get("log_interval", 100)
+        save_interval = training_cfg.get("save_interval", 1000)
+        save_path = training_cfg.get("save_path", None)
 
-    def get_action_value(
-        self, state: Dict[str, Any]
-    ) -> Tuple[Union[torch.Tensor, int], ...]:
-        """获取动作和价值（用于推理）
+        all_rewards = []
+        all_policy_losses = []
+        all_value_losses = []
+        all_entropy_losses = []
+        all_rcst_losses = []
+        all_grads = []
 
-        Args:
-            state: 状态
+        self.metric_manager.start_timer()
 
-        Returns:
-            action: 选择的动作
-            value: 状态价值（标量）
-        """
-        self.set_eval_mode()
-        with torch.no_grad():
-            info = state["pyg_data"]
-            output = self.model(
+        pbar = tqdm(total=num_episodes, desc="PPO Training", disable=not verbose)
+        for episode in range(1, num_episodes + 1):
+            env.reset()
+            episode_reward = 0.0
+
+            for step in range(max_steps):
+                state = env.get_state(use_gcc=use_gcc)
+                action, log_prob, value = self.select_action(state)
+                reward, done, info = env.step(action, state["mapping"])
+                next_state = env.get_state(mask=state["node_mask"])
+
+                self.collect_experience(
+                    state, action, next_state, reward, done, log_prob, value
+                )
+                episode_reward += reward
+
+                if self.metric_manager:
+                    self.metric_manager.update(
+                        state, action, next_state, reward, done, info
+                    )
+
+                if done or step >= max_steps:
+                    all_rewards.append(episode_reward)
+                    break
+
+            if episode % num_update == 0:
+                metrics = self.update(batch_size)
+                all_policy_losses.append(metrics.get("policy_loss", 0.0))
+                all_value_losses.append(metrics.get("value_loss", 0.0))
+                all_entropy_losses.append(metrics.get("entropy_loss", 0.0))
+                all_rcst_losses.append(metrics.get("rcst_loss", 0.0))
+                all_grads.append(metrics.get("grad", 0.0))
+
+                if tensorboard_writer:
+                    tensorboard_writer.add_scalar(
+                        "Train/reward", episode_reward, episode
+                    )
+                    tensorboard_writer.add_scalar(
+                        "Train/policy_loss", all_policy_losses[-1], episode
+                    )
+                    tensorboard_writer.add_scalar(
+                        "Train/value_loss", all_value_losses[-1], episode
+                    )
+                    tensorboard_writer.add_scalar(
+                        "Train/entropy_loss", all_entropy_losses[-1], episode
+                    )
+                    tensorboard_writer.add_scalar(
+                        "Train/rcst_loss", all_rcst_losses[-1], episode
+                    )
+                    tensorboard_writer.add_scalar("Train/grad", all_grads[-1], episode)
+
+            if self.metric_manager:
+                summary = self.metric_manager.get_summary()
+            else:
+                summary = {}
+            pbar.set_postfix(
                 {
-                    "x": info.x,
-                    "edge_index": info.edge_index,
-                    "batch": info.get(
-                        "batch", torch.zeros(info.x.shape[0], dtype=torch.long)
+                    "reward": f"{episode_reward:.2f}",
+                    "policy_loss": (
+                        f"{all_policy_losses[-1]:.4f}" if all_policy_losses else "0"
                     ),
-                    "component": info.get("component"),
+                    **summary,
                 }
             )
-            logit = output["logit"].squeeze()
-            value = output["v_values"].squeeze()
+            pbar.update(1)
 
-            action = torch.argmax(logit, dim=0)
-        return action, value
+            if episode % log_interval == 0 and all_rewards:
+                avg_reward = sum(all_rewards[-log_interval:]) / min(
+                    log_interval, len(all_rewards)
+                )
+                avg_policy_loss = sum(all_policy_losses[-log_interval:]) / min(
+                    log_interval, len(all_policy_losses)
+                )
+                avg_value_loss = sum(all_value_losses[-log_interval:]) / min(
+                    log_interval, len(all_value_losses)
+                )
+                avg_entropy_loss = sum(all_entropy_losses[-log_interval:]) / min(
+                    log_interval, len(all_entropy_losses)
+                )
+                avg_rcst_loss = sum(all_rcst_losses[-log_interval:]) / min(
+                    log_interval, len(all_rcst_losses)
+                )
+                avg_grad = sum(all_grads[-log_interval:]) / min(
+                    log_interval, len(all_grads)
+                )
+
+                log_msg = (
+                    f"Episode {episode}, Avg Reward: {avg_reward:.2f}, "
+                    f"Policy Loss: {avg_policy_loss:.4f}, "
+                    f"Value Loss: {avg_value_loss:.4f}, "
+                    f"Entropy Loss: {avg_entropy_loss:.4f}, "
+                    f"Rcst Loss: {avg_rcst_loss:.4f}, "
+                    f"Grad: {avg_grad:.4f}"
+                )
+
+                if logger:
+                    if self.metric_manager:
+                        summary = self.metric_manager.get_summary()
+                        metrics_str = ", ".join(
+                            [f"{k}: {v:.4f}" for k, v in summary.items()]
+                        )
+                        log_msg += f", {metrics_str}"
+                    logger.info(log_msg)
+
+            # Save checkpoint
+            if save_path and episode % save_interval == 0:
+                self.save_checkpoint(
+                    f"{save_path}/checkpoint_episode_{episode}.pt", episode=episode
+                )
+
+        pbar.close()
+
+        if save_path:
+            self.save_checkpoint(
+                f"{save_path}/checkpoint_final.pt", episode=num_episodes
+            )
+
+            if verbose:
+                print(f"Final model saved: {save_path}/checkpoint_final.pt")
+            if logger:
+                logger.info(f"Final model saved: {save_path}/checkpoint_final.pt")
+
+        return {
+            "num_episodes": num_episodes,
+            "final_reward": all_rewards[-1] if all_rewards else 0.0,
+            "avg_reward": (
+                sum(all_rewards[-100:]) / min(100, len(all_rewards))
+                if all_rewards
+                else 0.0
+            ),
+            "training_steps": self.training_step,
+        }
+
+    def rollout(self, env, use_gcc: bool = False, attack_rate_per_step: float = 0.01):
+        """Execute one complete rollout episode."""
+        num_nodes = env.num_nodes
+        attack_times = max(int(num_nodes * attack_rate_per_step), 1)
+
+        self.set_eval_mode()
+        start = time.time()
+        env.reset(use_gcc=use_gcc)
+        done = False
+        while not done:
+            # Compute policy
+            state = env.get_state(use_gcc=use_gcc)
+            with torch.no_grad():
+                info = state["pyg_data"]
+                output = self.model(
+                    {
+                        "x": info.x,
+                        "edge_index": info.edge_index,
+                        "batch": info.get(
+                            "batch",
+                            torch.zeros(
+                                info.x.shape[0], dtype=torch.long, device=self.device
+                            ),
+                        ),
+                        "component": info.get("component"),
+                    }
+                )
+
+            logit = output["logit"].view(-1)
+            indices = logit.argsort(descending=True)
+
+            # Start attack
+            for action in indices[:attack_times]:
+                _, done, _ = env.step(action, state["mapping"])
+
+                if done:
+                    break
+        end = time.time()
+
+        return {**env.rollout_info(), "rollout_time": end - start}
