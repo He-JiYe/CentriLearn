@@ -1,7 +1,8 @@
-"""强化学习环境模块"""
+"""
+Task Environments for Reinforcement Learning
+"""
 
 from .base import BaseEnv
 from .network_dismantling import NetworkDismantlingEnv
-from .vectorized_env import VectorizedEnv
 
-__all__ = ["BaseEnv", "NetworkDismantlingEnv", "VectorizedEnv"]
+__all__ = ["BaseEnv", "NetworkDismantlingEnv"]

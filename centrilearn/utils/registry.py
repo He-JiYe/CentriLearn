@@ -1,6 +1,6 @@
 """
-通用注册器
-支持模块的注册和动态构建
+Universal Registry
+Supports module registration and dynamic construction
 """
 
 import inspect
@@ -8,12 +8,12 @@ from typing import Dict, Type
 
 
 class Registry:
-    """注册器类
+    """Registry Class
 
-    将字符串映射到类，支持通过配置动态构建对象。
+    Maps strings to classes, supports dynamic object construction via configuration.
 
     Args:
-        name (str): 注册器名称
+        name (str): Registry name
     """
 
     def __init__(self, name: str):
@@ -35,13 +35,13 @@ class Registry:
         return self._module_dict
 
     def get(self, key: str) -> Type:
-        """获取注册的类
+        """Get registered class.
 
         Args:
-            key (str): 类名字符串
+            key (str): Class name string
 
         Returns:
-            Type: 对应的类
+            Type: Corresponding class
         """
         if key not in self._module_dict:
             raise KeyError(f"{key} not found in {self._name}")
@@ -50,12 +50,12 @@ class Registry:
     def _register_module(
         self, module_class: Type, module_name: str = None, force: bool = False
     ) -> None:
-        """注册模块
+        """Register module.
 
         Args:
-            module_class: 要注册的模块类
-            module_name: 注册的模块名称，如果未指定则使用类名
-            force: 是否覆盖已存在的同名类
+            module_class: Module class to register
+            module_name: Module name for registration, uses class name if not specified
+            force: Whether to overwrite existing class with same name
         """
         if not inspect.isclass(module_class):
             raise TypeError(f"module must be a class, but got {type(module_class)}")
@@ -71,11 +71,11 @@ class Registry:
     def register_module(
         self, name: str = None, force: bool = False, module: Type = None
     ):
-        """注册模块
+        """Register module.
 
-        在 `self._module_dict` 中添加记录，key 是类名或指定的名称，value 是类本身。
+        Add record to `self._module_dict`, key is class name or specified name, value is the class itself.
 
-        可以用作装饰器或普通函数。
+        Can be used as a decorator or regular function.
 
         Example:
             >>> backbones = Registry('backbone')
@@ -103,20 +103,20 @@ class Registry:
         return _register
 
 
-# 创建模型注册器
+# Create model registry
 NN = Registry("nn")
 BACKBONES = Registry("backbones")
 HEADS = Registry("heads")
 NETWORK_DISMANTLER = Registry("network_dismantler")
 
-# 创建环境注册器
+# Create environment registry
 ENVIRONMENTS = Registry("environments")
 
-# 创建算法注册器
+# Create algorithm registry
 ALGORITHMS = Registry("algorithms")
 
-# 创建经验缓冲池注册器
+# Create replay buffer registry
 REPLAYBUFFERS = Registry("replaybuffers")
 
-# 创建指标注册器
+# Create metric registry
 METRICS = Registry("metrics")

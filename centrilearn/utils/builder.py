@@ -1,29 +1,38 @@
 """
-优化器和调度器构建器
-支持通过配置文件动态创建优化器和调度器
+Optimizer and Scheduler Builders
+Support dynamic creation of optimizers and schedulers via configuration files
 """
 
+import copy
 import inspect
 from typing import Any, Dict, List, Optional, Union
 
 import torch
 from torch import nn
 
-from .registry import (ALGORITHMS, BACKBONES, ENVIRONMENTS, HEADS, METRICS,
-                       NETWORK_DISMANTLER, NN, REPLAYBUFFERS)
+from .registry import (
+    ALGORITHMS,
+    BACKBONES,
+    ENVIRONMENTS,
+    HEADS,
+    METRICS,
+    NETWORK_DISMANTLER,
+    NN,
+    REPLAYBUFFERS,
+)
 
 
 def build_optimizer(
     model: torch.nn.Module, cfg: Dict[str, Any]
 ) -> torch.optim.Optimizer:
-    """构建优化器
+    """Build optimizer.
 
     Args:
-        model: 神经网络模型
-        cfg: 优化器配置字典
+        model: Neural network model
+        cfg: Optimizer configuration dictionary
 
     Returns:
-        优化器实例
+        Optimizer instance
 
     Example:
         >>> optimizer_cfg = {
@@ -37,7 +46,6 @@ def build_optimizer(
     lr = cfg.get("lr", 1e-4)
     weight_decay = cfg.get("weight_decay", 0)
 
-    # 移除 type, lr, weight_decay 键
     params = {k: v for k, v in cfg.items() if k not in ["type", "lr", "weight_decay"]}
 
     if optimizer_type == "Adam":
@@ -96,24 +104,24 @@ def build_optimizer(
 def build_scheduler(
     optimizer: torch.optim.Optimizer, cfg: Optional[Dict[str, Any]] = None
 ) -> Optional[torch.optim.lr_scheduler._LRScheduler]:
-    """构建学习率调度器
+    """Build learning rate scheduler.
 
     Args:
-        optimizer: 优化器实例
-        cfg: 调度器配置字典，如果为 None 则不创建调度器
+        optimizer: Optimizer instance
+        cfg: Scheduler configuration dictionary, if None no scheduler is created
 
     Returns:
-        学习率调度器实例，如果 cfg 为 None 则返回 None
+        Learning rate scheduler instance, returns None if cfg is None
 
     Example:
-        >>> # 线性衰减
+        >>> # Linear decay
         >>> scheduler_cfg = {
         ...     'type': 'LinearLR',
         ...     'total_iters': 1000
         ... }
         >>> scheduler = build_scheduler(optimizer, scheduler_cfg)
 
-        >>> # 余弦退火
+        >>> # Cosine annealing
         >>> scheduler_cfg = {
         ...     'type': 'CosineAnnealingLR',
         ...     'T_max': 1000,
@@ -121,7 +129,7 @@ def build_scheduler(
         ... }
         >>> scheduler = build_scheduler(optimizer, scheduler_cfg)
 
-        >>> # 自定义衰减
+        >>> # Custom decay
         >>> scheduler_cfg = {
         ...     'type': 'LambdaLR',
         ...     'lambda_fn': lambda epoch: 0.99 ** epoch
@@ -133,7 +141,7 @@ def build_scheduler(
 
     scheduler_type = cfg.get("type")
 
-    # 提取通用参数
+    # Extract common parameters
     params = {k: v for k, v in cfg.items() if k != "type"}
 
     if scheduler_type == "StepLR":
@@ -232,7 +240,7 @@ def build_scheduler(
         )
 
     elif scheduler_type == "LambdaLR":
-        # 支持通过配置传递 lambda 函数
+        # Support passing lambda function via configuration
         lambda_fn = params.get("lambda_fn")
         if lambda_fn is None:
             raise ValueError("LambdaLR requires 'lambda_fn' parameter")
@@ -276,15 +284,15 @@ def build_scheduler(
 
 
 def build_from_cfg(cfg: Dict, registry, default_args: Dict = None):
-    """从配置字典构建模块
+    """Build module from configuration dictionary.
 
     Args:
-        cfg: 配置字典，必须包含 'type' 键
-        registry: 用于搜索类型的注册器
-        default_args: 默认初始化参数
+        cfg: Configuration dictionary, must contain 'type' key
+        registry: Registry for searching types
+        default_args: Default initialization parameters
 
     Returns:
-        obj: 构建的对象
+        obj: Built object
 
     Example:
         >>> cfg = {'type': 'SimpleNet', 'input_dim': 10, 'hidden_dim': 64}
@@ -296,7 +304,7 @@ def build_from_cfg(cfg: Dict, registry, default_args: Dict = None):
     if "type" not in cfg:
         raise KeyError(f'the cfg dict must contain the key "type", but got {cfg}')
 
-    args = cfg.copy()
+    args = copy.deepcopy(cfg)
 
     obj_type = args.pop("type")
     if isinstance(obj_type, str):
@@ -314,14 +322,14 @@ def build_from_cfg(cfg: Dict, registry, default_args: Dict = None):
 
 
 def build_nn(cfg: Union[Dict, List], default_args: Dict = None):
-    """从配置构建 nn
+    """Build nn from configuration.
 
     Args:
-        cfg: nn 配置，可以是字典或字典列表
-        default_args: 默认参数
+        cfg: nn configuration, can be dictionary or list of dictionaries
+        default_args: Default parameters
 
     Returns:
-        构建的 nn 模块
+        Built nn module
     """
     if isinstance(cfg, list):
         return nn.Sequential(*[build_from_cfg(_cfg, NN, default_args) for _cfg in cfg])
@@ -329,14 +337,14 @@ def build_nn(cfg: Union[Dict, List], default_args: Dict = None):
 
 
 def build_backbone(cfg: Union[Dict, List], default_args: Dict = None):
-    """从配置构建 backbone
+    """Build backbone from configuration.
 
     Args:
-        cfg: backbone 配置，可以是字典或字典列表
-        default_args: 默认参数
+        cfg: Backbone configuration, can be dictionary or list of dictionaries
+        default_args: Default parameters
 
     Returns:
-        构建的 backbone 模块
+        Built backbone module
     """
     if isinstance(cfg, list):
         return nn.Sequential(
@@ -346,14 +354,14 @@ def build_backbone(cfg: Union[Dict, List], default_args: Dict = None):
 
 
 def build_head(cfg: Union[Dict, List], default_args: Dict = None):
-    """从配置构建 head
+    """Build head from configuration.
 
     Args:
-        cfg: head 配置，可以是字典或字典列表
-        default_args: 默认参数
+        cfg: Head configuration, can be dictionary or list of dictionaries
+        default_args: Default parameters
 
     Returns:
-        构建的 head 模块
+        Built head module
     """
     if isinstance(cfg, list):
         return nn.Sequential(
@@ -363,14 +371,14 @@ def build_head(cfg: Union[Dict, List], default_args: Dict = None):
 
 
 def build_network_dismantler(cfg: Union[Dict, List], default_args: Dict = None):
-    """从配置构建 network_dismantler
+    """Build network_dismantler from configuration.
 
     Args:
-        cfg: network_dismantler 配置，可以是字典或字典列表
-        default_args: 默认参数
+        cfg: Network dismantler configuration, can be dictionary or list of dictionaries
+        default_args: Default parameters
 
     Returns:
-        构建的 network_dismantler 模块
+        Built network dismantler module
     """
     if isinstance(cfg, list):
         return nn.Sequential(
@@ -380,146 +388,68 @@ def build_network_dismantler(cfg: Union[Dict, List], default_args: Dict = None):
 
 
 def build_environment(cfg: Dict, default_args: Dict = None):
-    """从配置构建环境
+    """Build environment from configuration.
 
     Args:
-        cfg: 环境配置，可以是字典或字典列表
-        default_args: 默认参数
+        cfg: Environment configuration
+        default_args: Default parameters
 
     Returns:
-        构建的环境实例
+        Built environment instance
     """
+
+    cfg = copy.deepcopy(cfg)
+
     env_class = cfg.get("type", "NetworkDismantlingEnv")
     env_class = ENVIRONMENTS.get(env_class) if isinstance(env_class, str) else env_class
 
-    # 检查是否为向量化环境配置
-    if cfg.get("graph_list", []):
-        from ..environments import VectorizedEnv
-
-        graph_list = cfg.get("graph_list", [])
-        common_kwargs = cfg.get("common_kwargs", {})
-
-        return VectorizedEnv.from_graph_list(env_class, graph_list, common_kwargs)
-
-    if cfg.get("graph_files_list", []):
-        from networkx import read_edgelist
-
-        graph_list = [
-            read_edgelist(file, nodetype=int)
-            for file in cfg.get("graph_files_list", [])
-        ]
-        common_kwargs = cfg.get("common_kwargs", {})
-        return VectorizedEnv.from_graph_list(env_class, graph_list, common_kwargs)
-
-    if cfg.get("env_kwargs_list", []):
-        from ..environments import VectorizedEnv
-
-        env_kwargs_list = cfg.get("env_kwargs_list", [])
-        env_num = cfg.get("env_num", None)
-        return VectorizedEnv(env_class, env_kwargs_list, env_num)
-
-    # 支持单环境配置 + env_num 的方式创建向量化环境
-    if (
-        cfg.get("env_num", 1) > 1
-        and not cfg.get("graph_list")
-        and not cfg.get("graph_files_list")
-        and not cfg.get("env_kwargs_list")
-    ):
-        from ..environments import VectorizedEnv
-
-        # 提取环境配置，去除不需要的键
-        env_kwargs = cfg.copy()
-        env_kwargs.pop("type", None)
-        env_kwargs.pop("env_num", None)
-        env_kwargs.pop("graph_file", None)
-
-        # 处理图文件
-        if cfg.get("graph_file"):
-            from networkx import read_edgelist
-
-            env_kwargs["graph"] = read_edgelist(cfg.get("graph_file"), nodetype=int)
-
-        # 处理默认图
-        if env_kwargs.get("graph") is None:
-            from random import randint
-
-            from networkx import barabasi_albert_graph
-
-            n = randint(40, 60)
-            env_kwargs["graph"] = barabasi_albert_graph(n, 3)
-
-        return VectorizedEnv(env_class, [env_kwargs], cfg.get("env_num"))
-
     if cfg.get("graph_file"):
-        from networkx import read_edgelist
+        from networkx import convert_node_labels_to_integers, read_edgelist
 
         cfg["graph"] = read_edgelist(cfg.get("graph_file"), nodetype=int)
+        cfg["graph"] = convert_node_labels_to_integers(cfg["graph"])
         cfg.pop("graph_file")
-
-    if cfg.get("graph") is None:
-        from random import randint
-
-        from networkx import barabasi_albert_graph
-
-        n = randint(40, 60)
-        cfg["graph"] = barabasi_albert_graph(n, 3)
 
     return build_from_cfg(cfg, ENVIRONMENTS, default_args)
 
 
 def build_algorithm(cfg: Union[Dict, List], default_args: Dict = None):
-    """从配置构建算法
+    """Build algorithm from configuration.
 
     Args:
-        cfg: 算法配置，可以是字典或字典列表
-        default_args: 默认参数
+        cfg: Algorithm configuration, can be dictionary or list of dictionaries
+        default_args: Default parameters
 
     Returns:
-        构建的算法实例
+        Built algorithm instance
     """
     if isinstance(cfg, list):
         return [build_from_cfg(_cfg, ALGORITHMS, default_args) for _cfg in cfg]
     return build_from_cfg(cfg, ALGORITHMS, default_args)
 
 
-def build_replaybuffer(cfg: Union[Dict, List], default_args: Dict = None):
-    """从配置构建经验缓冲区
+def build_replaybuffer(cfg: Dict, default_args: Dict = None):
+    """Build replay buffer from configuration.
 
     Args:
-        cfg: 指标配置，可以是字典或字典列表
-        default_args: 默认参数
+        cfg: Replay buffer configuration
+        default_args: Default parameters
 
     Returns:
-        构建的经验缓冲区实例
+        Built replay buffer instance
     """
-    if isinstance(cfg, list):
-        return [build_from_cfg(_cfg, REPLAYBUFFERS, default_args) for _cfg in cfg]
-
-    # 检查是否需要创建向量化缓冲区
-    env_num = cfg.get("env_num", 1)
-    buffer_type = cfg.get("type", "")
-
-    if env_num > 1:
-        # 创建向量化缓冲区
-        if buffer_type == "ReplayBuffer":
-            cfg["type"] = "VectorizedReplayBuffer"
-        elif buffer_type == "RolloutBuffer":
-            cfg["type"] = "VectorizedRolloutBuffer"
-        return build_from_cfg(cfg, REPLAYBUFFERS, default_args)
-    else:
-        cfg.pop("env_num")
-        return build_from_cfg(cfg, REPLAYBUFFERS, default_args)
+    return build_from_cfg(cfg, REPLAYBUFFERS, default_args)
 
 
 def build_metric(cfg: Union[Dict, List], default_args: Dict = None):
-    """从配置构建指标
+    """Build metric from configuration.
 
     Args:
-        cfg: 指标配置，可以是字典或字典列表
-        default_args: 默认参数
+        cfg: Metric configuration, can be dictionary or list of dictionaries
+        default_args: Default parameters
 
     Returns:
-        构建的指标实例或实例列表
+        Built metric instance or list of instances
     """
     if isinstance(cfg, list):
         return [build_from_cfg(_cfg, METRICS, default_args) for _cfg in cfg]
@@ -527,45 +457,27 @@ def build_metric(cfg: Union[Dict, List], default_args: Dict = None):
 
 
 def build_metric_manager(cfg: Dict = None):
-    """从配置构建指标管理器
+    """Build metric manager from configuration.
 
     Args:
-        cfg: 指标管理器配置，格式为:
+        cfg: Metric manager configuration, format:
             {
-                'metrics': [  # 指标列表
+                'metrics': [  # Metrics list
                     {'type': 'AverageReward', 'max_history': 100},
                     {'type': 'SuccessRate', 'threshold': 0.8}
                 ],
-                'save_dir': './logs',  # 可选
-                'log_interval': 100,  # 可选
-                'num_env': 1  # 环境数量，默认为 1
             }
-            如果 cfg 为 None，返回 None
+            Returns None if cfg is None
 
     Returns:
-        MetricManager 实例或 VectorizedMetricManager 实例或 None
+        MetricManager instance or None
     """
     if cfg is None:
         return None
 
     metrics_cfg = cfg.get("metrics", [])
-    metrics = [build_metric(m_cfg) for m_cfg in metrics_cfg] if metrics_cfg else []
-    num_env = cfg.get("num_env", 1)
+    metrics = build_metric(metrics_cfg) if metrics_cfg else []
 
-    if num_env > 1:
-        from ..metrics.manager import VectorizedMetricManager
+    from ..metrics.manager import MetricManager
 
-        return VectorizedMetricManager(
-            env_num=num_env,
-            metrics=metrics,
-            save_dir=cfg.get("save_dir"),
-            log_interval=cfg.get("log_interval", 100),
-        )
-    else:
-        from ..metrics.manager import MetricManager
-
-        return MetricManager(
-            metrics=metrics,
-            save_dir=cfg.get("save_dir"),
-            log_interval=cfg.get("log_interval", 100),
-        )
+    return MetricManager(metrics=metrics)

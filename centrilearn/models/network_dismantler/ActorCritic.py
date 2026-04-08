@@ -8,8 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from centrilearn.utils.builder import (NETWORK_DISMANTLER, build_backbone,
-                                       build_head)
+from centrilearn.utils.builder import NETWORK_DISMANTLER, build_backbone, build_head
 
 
 @NETWORK_DISMANTLER.register_module()

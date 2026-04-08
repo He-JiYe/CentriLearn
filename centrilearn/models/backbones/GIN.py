@@ -4,12 +4,9 @@ The implementation of GIN with graph embedding based on PyG's GINConv.
 
 from typing import Any, Dict
 
-import torch
-import torch.nn.functional as F
-from torch_geometric.nn import (MLP, GINConv, global_add_pool, global_max_pool,
-                                global_mean_pool)
-from torch_geometric.nn.models.basic_gnn import BasicGNN
+from torch_geometric.nn import MLP, GINConv
 
+from centrilearn.models.backbones.BasicGNN import BasicGNN
 from centrilearn.utils.registry import BACKBONES
 
 
@@ -24,36 +21,39 @@ class GIN(BasicGNN):
         in_channels: Input feature dimension
         hidden_channels: Hidden feature dimension
         num_layers: Number of GIN layers
-        output_dim: Output feature dimension (default: hidden_channels)
+        out_channels: Output feature dimension (default: hidden_channels)
         graph_aggr: Graph pooling method ('add', 'mean', 'max')
         dropout: Dropout probability
     """
+
+    supports_edge_weight: bool = False
+    supports_edge_attr: bool = False
 
     def __init__(
         self,
         in_channels: int,
         hidden_channels: int,
         num_layers: int,
-        output_dim: int = None,
+        out_channels: int = None,
         aggr: str = "mean",
         graph_aggr: str = "add",
         norm: str = None,
         dropout: float = 0.0,
+        fpa: bool = False,
         **kwargs,
     ):
-        self.graph_aggr = graph_aggr
         self.aggr = aggr
 
-        kwargs.pop("output_dim", None)
-
-        # Initialize BasicGNN with norm option
+        # Initialize BasicGNN with graph_aggr option and fpa support
         super().__init__(
             in_channels=in_channels,
             hidden_channels=hidden_channels,
             num_layers=num_layers,
-            output_dim=output_dim,
+            out_channels=out_channels,
             dropout=dropout,
             norm=norm,
+            graph_aggr=graph_aggr,
+            fpa=fpa,
             **kwargs,
         )
 
@@ -66,25 +66,6 @@ class GIN(BasicGNN):
             norm_kwargs=self.norm_kwargs,
         )
         return GINConv(mlp, **kwargs)
-
-    def _pool_graph(self, x: torch.Tensor, batch: torch.Tensor) -> torch.Tensor:
-        """Pool node embeddings to graph embeddings.
-
-        Args:
-            x: Node embeddings [num_nodes, hidden_channels]
-            batch: Batch assignment [num_nodes]
-
-        Returns:
-            Graph embeddings [num_graphs, hidden_channels]
-        """
-        if self.graph_aggr == "sum" or self.graph_aggr == "add":
-            return global_add_pool(x, batch)
-        elif self.graph_aggr == "mean":
-            return global_mean_pool(x, batch)
-        elif self.graph_aggr == "max":
-            return global_max_pool(x, batch)
-        else:
-            raise ValueError(f"Unknown graph aggregation: {self.graph_aggr}")
 
     def forward(self, info: Dict[str, Any]) -> Dict[str, Any]:
         """Forward pass.
@@ -102,62 +83,27 @@ class GIN(BasicGNN):
         assert info.get("edge_index") is not None, "Edge indices are required"
         assert info.get("batch") is not None, "Batch assignment is required"
 
-        x, edge_index, batch, graph_embed = (
-            info["x"],
-            info["edge_index"],
-            info["batch"],
-            None,
+        x, edge_index, batch = info["x"], info["edge_index"], info["batch"]
+        edge_weight, edge_attr, batch_size = (
+            info.get("edge_weight"),
+            info.get("edge_attr"),
+            info.get("batch_size"),
         )
 
-        batch_size = batch.max().item() + 1 if batch is not None else 1
-        batch_indices = torch.arange(batch_size, device=x.device)
+        # Call parent's forward which returns (node_embed, graph_embed)
+        node_embed, graph_embed = super().forward(
+            x=x,
+            edge_index=edge_index,
+            edge_weight=edge_weight,
+            edge_attr=edge_attr,
+            batch=batch,
+            batch_size=batch_size,
+        )
 
-        for i, (conv, norm) in enumerate(zip(self.convs, self.norms)):
-            # Update the graph embeddings first
-            current_graph_embed = self._pool_graph(x, batch)
-            current_graph_embed = conv.lin_l(current_graph_embed)
-
-            if conv.root_weight and graph_embed is not None:
-                current_graph_embed = current_graph_embed + conv.lin_r(graph_embed)
-
-            if conv.normalize:
-                current_graph_embed = F.normalize(current_graph_embed, p=2.0, dim=-1)
-
-            if i < self.num_layers - 1 or self.jk_mode is not None:
-                if self.act is not None and self.act_first:
-                    current_graph_embed = self.act(current_graph_embed)
-                if self.supports_norm_batch:
-                    current_graph_embed = norm(
-                        current_graph_embed,
-                        batch_indices,
-                        batch_size,
-                    )
-                else:
-                    current_graph_embed = norm(current_graph_embed)
-                if self.act is not None and not self.act_first:
-                    current_graph_embed = self.act(current_graph_embed)
-                current_graph_embed = self.dropout(current_graph_embed)
-
-            graph_embed = current_graph_embed
-
-            # Then update the node embeddings
-            x = conv(x, edge_index)
-
-            if i < self.num_layers - 1 or self.jk_mode is not None:
-                if self.act is not None and self.act_first:
-                    x = self.act(x)
-                if self.supports_norm_batch:
-                    x = norm(x, batch, batch_size)
-                else:
-                    x = norm(x)
-                if self.act is not None and not self.act_first:
-                    x = self.act(x)
-                x = self.dropout(x)
-
-        info["node_embed"], info["graph_embed"] = x, graph_embed
+        info["node_embed"], info["graph_embed"] = node_embed, graph_embed
         return info
 
     @property
     def output_dim(self):
         """Output channels dimension."""
-        return self._output_dim
+        return self.out_channels

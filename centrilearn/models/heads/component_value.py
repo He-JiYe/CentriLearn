@@ -80,10 +80,12 @@ class ComponentValueHead(nn.Module):
 
         # Aggregate components for each graph
         indices = torch.arange(len(num_component_per_graph), device=node_embed.device)
-        info["v_values"] = scatter_sum(
+        v_values = scatter_sum(
             component_value,
             torch.repeat_interleave(indices, num_component_per_graph),
             dim=0,
         )
+
+        info["v_values"] = v_values
 
         return info

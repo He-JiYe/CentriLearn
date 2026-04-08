@@ -1,101 +1,165 @@
 """
-网络瓦解强化学习环境
-实现基于移除节点的网络瓦解任务
+Network Dismantling Reinforcement Learning Environment
+Implements network dismantling task based on node removal
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import networkx as nx
+import scipy.sparse as sp
 import torch
-from torch_geometric.utils import subgraph
+from torch_geometric.data import Data
+from torch_geometric.utils import degree, subgraph, to_scipy_sparse_matrix
 
+from centrilearn.environments.base import BaseEnv
 from centrilearn.utils.registry import ENVIRONMENTS
-
-from .base import BaseEnv
 
 
 @ENVIRONMENTS.register_module()
 class NetworkDismantlingEnv(BaseEnv):
-    """网络瓦解环境
+    """Network Dismantling Environment
 
-    目标：通过移除节点来破坏网络的连通性，使最大连通分量最小化。
+    Goal: Disrupt network connectivity by removing nodes to minimize the largest connected component.
 
     Attributes:
-        remove_nodes: 已移除的节点列表
-        lcc_size: 最大连通分量大小历史记录
+        remove_nodes: List of removed nodes
+        lcc_size: Largest connected component size history
     """
 
     def __init__(
-        self, graph: nx.Graph, value_type: str = "auc", use_gcc: bool = False, **kwargs
+        self,
+        graph: Optional[nx.Graph] = None,
+        node_features: str = "ones",
+        node_dim: int = 2,
+        value_type: str = "auc",
+        synth_type: str = "ba",
+        synth_args: Optional[Dict[str, Any]] = None,
+        use_component: bool = False,
+        is_undirected: bool = True,
+        device: str = "cpu",
+        **kwargs,
     ):
-        """初始化网络瓦解环境
+        """Initialize network dismantling environment.
 
         Args:
-            graph: 网络图对象
-            node_features: 节点特征类型 ('ones', 'degree', 'combin')
-            is_undirected: 是否将图转换为无向图
-            value_type: ['auc', 'ar']
-            use_gcc: 只与最大连通分支进行交互
-            device: 设备类型
+            graph: Network graph object
+            node_features: Node feature type ('ones', 'degree', 'laplacian')
+            node_dim: Node feature dimension
+            value_type: Reward value type ('auc', 'ar', 'at')
+            synth_type: Synthetic network type ('ba', 'er', 'ws')
+            synth_args: Synthetic network parameters
+            use_component: Whether to use connected components
+            is_undirected: Whether to convert graph to undirected
+            device: Computing device
+            **kwargs: Other parameters
         """
+        self.node_features = node_features
+        self.node_dim = node_dim
         self.value_type = value_type
-        self.use_gcc = use_gcc
-        super().__init__(graph, **kwargs)
+        super().__init__(
+            graph,
+            synth_type=synth_type,
+            synth_args=synth_args,
+            use_component=use_component,
+            is_undirected=is_undirected,
+            device=device,
+            **kwargs,
+        )
 
     def _reset(self) -> None:
-        """重置环境"""
+        """Reset environment."""
         self.remove_nodes = []
         self.lcc_size = [1]
 
-    def _step_impl(self, action: int) -> Tuple[float, bool, Dict[str, Any]]:
-        """执行一步动作
+    def _step(
+        self, action: int, mapping: torch.Tensor = None
+    ) -> Tuple[float, bool, Dict[str, Any]]:
+        """Execute one step of action.
 
         Args:
-            action: 要移除的节点索引 (当前图 graph 中的索引)
-            mapping: 节点索引映射 (当前图 -> 原始图)
+            action: Node index to remove (index in current graph)
+            mapping: Node index mapping of state (current graph -> original graph)
 
         Returns:
-            reward: 奖励值
-            done: 是否终止
-            info: 额外信息字典
+            reward: Reward value
+            done: Whether episode is done
+            info: Additional information dictionary
         """
+        if mapping is not None:
+            action = mapping[action]
 
-        # 移除节点
+        # Remove node
         self.remove_node(action)
-
-        next_state = self.get_state()
 
         if self.value_type == "auc":
             reward = -self.lcc() / (self.num_nodes * self.num_nodes)
         elif self.value_type == "ar":
             reward = -1 / self.num_nodes
+        elif self.value_type == "at":
+            reward = -1
 
-        done = self.is_empty() or self.lcc() <= 1
+        done = self.is_empty() or self.lcc() <= 2
         info = {
             "lcc_size": self.lcc_size[-1],
             "num_nodes": self.num_nodes,
         }
 
-        return next_state, reward, done, info
+        return reward, done, info
 
-    def get_state(self) -> Dict[str, Any]:
-        if self.use_gcc:
-            gcc = self.lcc_component()
-            pyg_data = self.get_pyg_data(mask=gcc)
+    def get_state(
+        self, use_gcc: bool = False, mask: torch.Tensor = None
+    ) -> Dict[str, Any]:
+        node_mask = self.node_mask
+
+        if use_gcc:
+            node_mask = torch.logical_and(node_mask, self.lcc_component())
+        if mask is not None:
+            node_mask = torch.logical_and(node_mask, mask)
+
+        # Get remaining graph node indices
+        mapping = node_mask.nonzero(as_tuple=False).view(-1)
+        edge_index, _ = subgraph(
+            mapping, self.edge_index, relabel_nodes=True, num_nodes=self.num_nodes
+        )
+
+        # Construct node features
+        num_nodes = mapping.shape[0]
+        if self.node_features == "degree":
+            deg = degree(edge_index[0], num_nodes) / num_nodes
+            x = deg.unsqueeze(-1).expand(num_nodes, self.node_dim)
         else:
-            pyg_data = self.get_pyg_data()
+            raise ValueError(f"Unknown node_features: {self.node_features}")
+
+        data = Data(x=x, edge_index=edge_index).to(self.device)
+
+        # Connected component labels
+        if self.use_component:
+            data.component = self.connected_components(edge_index, num_nodes)
 
         info = {
-            "mapping": self.node_mask.nonzero(as_tuple=False).view(
-                -1
-            ),  # mapping[当前图索引] -> 原始图索引
-            "pyg_data": pyg_data,
+            "pyg_data": data,
+            "mapping": mapping.view(-1),
+            "node_mask": node_mask,
         }
 
         return info
 
+    def rollout_info(self):
+        return {
+            "remove_nums": len(self.remove_nodes),
+            "remove_nodes": self.remove_nodes,
+            "lcc_size": self.lcc_size,
+            "num_nodes": self.num_nodes,
+        }
+
+    def connected_components(self, edge_index, num_nodes) -> List[int]:
+        """Get connected component labels for each node in the remaining graph based on scipy algorithm."""
+        adj = to_scipy_sparse_matrix(edge_index, num_nodes=num_nodes)
+        _, component = sp.csgraph.connected_components(adj, connection="weak")
+        return torch.as_tensor(component, dtype=torch.long, device=edge_index.device)
+
     def lcc(self) -> int:
-        """返回剩余图的最大连通分量"""
+        """Return the largest connected component of the remaining graph."""
         mapping = self.node_mask.nonzero(as_tuple=False).view(-1)
         num_nodes = mapping.shape[0]
         edge_index, _ = subgraph(
@@ -105,21 +169,33 @@ class NetworkDismantlingEnv(BaseEnv):
         components_size = torch.bincount(components)
         return components_size.max().item()
 
-    def lcc_component(self) -> List:
-        """返回剩余图的最大连通分量的索引"""
+    def lcc_component(self) -> torch.BoolTensor:
+        """Return the mask of the largest connected component in the remaining graph."""
         mapping = self.node_mask.nonzero(as_tuple=False).view(-1)
         num_nodes = mapping.shape[0]
         edge_index, _ = subgraph(
             mapping, self.edge_index, relabel_nodes=True, num_nodes=self.num_nodes
         )
         components = self.connected_components(edge_index, num_nodes)
-        lcc = torch.bincount(components).max()[0]
-        return components.eq(lcc)
+        lcc_label = torch.bincount(components).argmax()
+        original_indices = mapping[
+            (components == lcc_label).nonzero(as_tuple=False).view(-1)
+        ]
+
+        mask = torch.zeros(self.num_nodes, dtype=torch.bool, device=self.device)
+        mask[original_indices] = True
+        return mask
 
     def remove_node(self, node: int):
-        """移除节点 node"""
-        masked_node = self.mapping[node]
-        self.node_mask[masked_node] = False
-
-        self.remove_nodes.append(masked_node)
+        """Remove node."""
+        self.node_mask[node] = False
+        self.remove_nodes.append(int(node))
         self.lcc_size.append(self.lcc() / self.num_nodes)
+
+    def __repr__(self):
+        """Print network dismantling environment information."""
+        message = (
+            super().__repr__()[:-1]
+            + f"node_features: {self.node_features}, node_dim: {self.node_dim}, value_type: {self.value_type})"
+        )
+        return message
