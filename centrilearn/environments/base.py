@@ -1,53 +1,50 @@
 """
-网络环境基类
-提供网络强化学习环境的标准接口和通用功能
+Base Environment for Network RL
+Provides standard interface and common functionality for network reinforcement learning environments
 """
 
 import random
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import networkx as nx
 import torch
-from torch_geometric.data import Data
-from torch_geometric.utils import degree, subgraph, to_undirected
+from torch_geometric.utils import to_undirected
 
 
 class BaseEnv(ABC):
-    """网络强化学习环境基类
+    """Base Environment for Network Reinforcement Learning
 
-    所有网络相关环境的基类，定义了标准接口和通用功能。
-    子类根据需要实现 _reset, step, get_state 逻辑。
+    Base class for all network-related environments, defining standard interfaces and common functionality.
+    Subclasses implement _reset, step, get_state logic as needed.
 
     Attributes:
-        graph: 网络视图 (要求节点标签从 0 - n-1)
-        edge_index: 边索引张量 [2, num_edges]
-        node_mask: 节点掩码
-        num_nodes: 网络节点数
+        graph: Network view (requires node labels from 0 to n-1)
+        edge_index: Edge index tensor [2, num_edges]
+        node_mask: Node mask
+        num_nodes: Number of network nodes
     """
 
     def __init__(
         self,
         graph: Optional[nx.Graph] = None,
-        node_features: str = "ones",
         synth_type: str = "ba",
         synth_args: Optional[Dict[str, Any]] = None,
         use_component: bool = False,
         is_undirected: bool = True,
         device: str = "cpu",
     ):
-        """设置原始网络图并重新映射节点编号
+        """Set up original network graph and remap node indices.
 
         Args:
-            graph: 网络图对象
-            node_features: 节点特征类型 ('ones', 'degree', 'combin')
-            synth_type: 合成网络类型 ('ba', 'er', 'ws')
-            synth_args: 合成网络参数
-            use_component: 是否使用连通分量
-            is_undirected: 是否将图转换为无向图
+            graph: Network graph object
+            synth_type: Synthetic network type ('ba', 'er', 'ws')
+            synth_args: Synthetic network parameters
+            use_component: Whether to use connected components
+            is_undirected: Whether to convert graph to undirected
+            device: Computing device
         """
         self.device = device
-        self.node_features = node_features
         self.is_synth = graph is None
         self.synth_type = synth_type if self.is_synth else None
         self.synth_args = synth_args if self.is_synth else None
@@ -55,14 +52,15 @@ class BaseEnv(ABC):
         self.is_undirected = is_undirected
         self.reset(graph)
 
-    def reset(self, graph: Optional[nx.Graph] = None) -> Dict[str, Any]:
-        """重置环境
+    def reset(self, graph: Optional[nx.Graph] = None, **kwargs) -> Dict[str, Any]:
+        """Reset environment.
 
         Args:
-            graph: 网络图对象
+            graph: Network graph object
+            **kwargs: Other parameters
 
         Returns:
-            初始状态信息
+            Initial state information
         """
         # Graph > Origin Graph > Synth Graph
         if graph is not None:
@@ -70,17 +68,25 @@ class BaseEnv(ABC):
             self.num_nodes = graph.number_of_nodes()
 
         if self.is_synth:
-            min_n, max_n = self.synth_args.pop("min_n", 40), self.synth_args.pop(
+            if self.synth_args is None:
+                self.synth_args = {"m": 4}
+
+            min_n, max_n = self.synth_args.get("min_n", 40), self.synth_args.get(
                 "max_n", 60
             )
-            self.num_nodes = random.randint(min_n, max_n)
-            self.synth_args["n"] = self.num_nodes
+            syn_args = {
+                k: v for k, v in self.synth_args.items() if k not in ["min_n", "max_n"]
+            }
+            syn_args["n"] = self.synth_args["n"] = self.num_nodes = random.randint(
+                min_n, max_n
+            )
+
             if self.synth_type == "ba":
-                self.graph = nx.barabasi_albert_graph(**self.synth_args)
+                self.graph = nx.barabasi_albert_graph(**syn_args)
             elif self.synth_type == "er":
-                self.graph = nx.erdos_renyi_graph(**self.synth_args)
+                self.graph = nx.erdos_renyi_graph(**syn_args)
             elif self.synth_type == "ws":
-                self.graph = nx.watts_strogatz_graph(**self.synth_args)
+                self.graph = nx.watts_strogatz_graph(**syn_args)
 
         self.edge_index = (
             torch.tensor(list(self.graph.edges()), dtype=torch.long, device=self.device)
@@ -93,139 +99,53 @@ class BaseEnv(ABC):
         self.node_mask = torch.ones(self.num_nodes, dtype=bool, device=self.device)
         self.step_count = 0
 
-        # 重置剩余统计信息
+        # Reset remaining statistics
         self._reset()
 
-        return self.get_state()
+        return self.get_state(**kwargs)
 
     @abstractmethod
     def _reset(self) -> None:
-        """
-        重置剩余统计信息
-        """
+        """Reset remaining statistics."""
         pass
 
-    def step(self, action: int) -> Tuple[float, bool, Dict[str, Any]]:
-        """执行一步环境交互
+    def step(self, action: int, *args, **kwargs) -> Tuple[float, bool, Dict[str, Any]]:
+        """Execute one step of environment interaction.
 
         Args:
-            action: 执行的动作
+            action: Action taken
 
         Returns:
-            reward: 奖励值
-            done: 是否终止
-            info: 额外信息字典
+            reward: Reward value
+            done: Whether episode is done
+            info: Additional information dictionary
         """
         self.step_count += 1
-        return self._step_impl(action)
+        return self._step(action, *args, **kwargs)
 
     @abstractmethod
-    def _step_impl(self, action: int) -> Tuple[float, bool, Dict[str, Any]]:
-        """子类需要实现的具体步骤逻辑"""
+    def _step(self, action: int) -> Tuple[float, bool, Dict[str, Any]]:
+        """Step logic that subclasses need to implement."""
         pass
 
     @abstractmethod
     def get_state(self) -> Dict[str, Any]:
-        """获取当前状态信息"""
-        return {
-            "mapping": self.node_mask.nonzero(as_tuple=False).view(
-                -1
-            ),  # mapping[当前图索引] -> 原始图索引
-            "pyg_data": self.get_pyg_data(),
-        }
+        """Get current state information that subclasses need to implement."""
+        pass
 
-    def get_pyg_data(
-        self, mask: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """获取PyG格式的剩余图数据
-
-        Args:
-            mask: 节点掩码
-
-        Returns:
-            Data(
-            x: 节点特征张量 [num_nodes, feature_dim],
-            edge_index: 边索引张量 [2, num_edges],
-            component: 连通分量标签 [num_nodes]
-            )
-        """
-        node_mask = self.node_mask
-        if mask is not None:
-            node_mask &= mask
-
-        # 获取剩余图节点索引
-        mapping = node_mask.nonzero(as_tuple=False).view(-1)
-        self.mapping = mapping
-
-        edge_index, _ = subgraph(
-            mapping, self.edge_index, relabel_nodes=True, num_nodes=self.num_nodes
-        )
-
-        # 构建节点特征
-        num_nodes = mapping.shape[0]
-        if self.node_features == "ones":
-            x = torch.ones(num_nodes, 2, device=self.device)
-        elif self.node_features == "degree":
-            deg = degree(edge_index[0], num_nodes)
-            x = torch.stack([deg, deg], dim=1, device=self.device)
-        elif self.node_features == "combin":
-            deg = degree(edge_index[0], num_nodes) / num_nodes
-            x = torch.cat(
-                [torch.ones(num_nodes, 1, device=self.device), deg.unsqueeze(-1)], dim=1
-            )
-        else:
-            raise ValueError(f"Unknown node_features: {self.node_features}")
-
-        # 连通分量标签
-        if self.use_component:
-            component = self.connected_components(edge_index, num_nodes)
-        else:
-            component = None
-
-        return Data(x=x, edge_index=edge_index, component=component).to(self.device)
-
-    def connected_components(self, edge_index, num_nodes) -> List[int]:
-        """
-        基于并查集获取剩余图中每个节点的分支标签
-        """
-        parent = torch.arange(num_nodes, device=self.device)
-
-        def find(x):
-            # 迭代实现路径压缩
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        def union(x, y):
-            root_x = find(x)
-            root_y = find(y)
-            if root_x != root_y:
-                if root_x < root_y:
-                    parent[root_y] = root_x
-                else:
-                    parent[root_x] = root_y
-
-        # 遍历所有边进行合并
-        for i in range(edge_index.shape[1]):
-            src, dst = edge_index[0, i], edge_index[1, i]
-            union(src, dst)
-
-        for i in range(num_nodes):
-            find(i)
-
-        # 重新映射标签为连续的整数
-        component_labels = torch.unique(parent, return_inverse=True)[1]
-
-        return component_labels
+    @abstractmethod
+    def rollout_info(self) -> Dict[str, Any]:
+        """Define what information to output after completing a rollout."""
+        pass
 
     def is_empty(self) -> bool:
-        """检查图是否为空
+        """Check if graph is empty.
 
         Returns:
-            是否为空图
+            Whether the graph is empty
         """
         return self.node_mask.sum() == 0
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(nodes={self.graph.number_of_nodes()}, edges={self.graph.number_of_edges()})"
+        """Print environment information."""
+        return f"{self.__class__.__name__}(nodes={self.graph.number_of_nodes()}, edges={self.graph.number_of_edges()}, use_component: {self.use_component}, is_undirected: {self.is_undirected}, is_synth: {self.is_synth}, synth_type: {self.synth_type}, synth_args: {self.synth_args}, device: {self.device})"

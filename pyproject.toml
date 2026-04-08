@@ -11,16 +11,20 @@ keywords = ["reinforcement-learning", "graph-neural-networks", "network-dismantl
 
 dependencies = [
     "torch>=2.7.0",
-    "torch-geometric==2.6.1",
-    "torch-scatter==2.1.2",
-    "networkx==3.4.2",
-    "numpy==2.2.5",
-    "pyyaml==6.0.2",
-    "tqdm==4.65.2"
+    "torch-geometric>=2.6.0",
+    "torch-scatter>=2.1.0",
+    "networkx>=3.4.0",
+    "numpy>=2.2.5",
+    "pandas>=2.0.0",
+    "scipy>=1.13.0",
+    "pyyaml>=6.0.0",
 ]
 
 [tool.uv]
 prerelease = "allow"
+
+[tool.uv.extra-build-dependencies]
+torch-scatter = ["torch"]
 
 [tool.setuptools]
 packages = ["centrilearn"]

@@ -1,6 +1,5 @@
 """
-强化学习算法模块
-提供 DQN 和 PPO 等强化学习算法实现
+Reinforcement Learning Algorithms
 """
 
 from .base import BaseAlgorithm

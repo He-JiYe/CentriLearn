@@ -4,7 +4,7 @@ Value head for critic/advantage estimation.
 
 from typing import Any, Dict
 
-from torch import Tensor, nn
+from torch import nn
 
 from centrilearn.utils.registry import HEADS
 
