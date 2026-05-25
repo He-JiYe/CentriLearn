@@ -1,4 +1,4 @@
-# configs/FINDER.yaml
+# configs/DQN.yaml
 
 algorithm:
   type: DQN
@@ -8,24 +8,19 @@ algorithm:
       type: GraphSAGE
       in_channels: 1
       hidden_channels: 64
-      num_layers: 3
+      num_layers: 4
+      fpa: True
     q_head_cfg:
       type: QHead
-      in_channels: 128
+      in_channels: 512
   optimizer_cfg:
     type: AdamW
-    lr: 0.001
+    lr: 0.0001
     weight_decay: 0.0005
   replaybuffer_cfg:
     type: ReplayBuffer
     capacity: 10000
     n_step: 5
-    prioritized: False
-  scheduler_cfg:
-    type: "LinearLR"
-    start_factor: 1
-    end_factor: 0.01
-    total_iters: 1000
   metric_manager_cfg:
     metrics:
       - type: AUC
@@ -42,7 +37,7 @@ algorithm:
 
 environment:
   type: NetworkDismantlingEnv
-  node_features: degree
+  node_features: ones
   node_dim: 1
   synth_type: ba
   synth_args:
@@ -51,12 +46,10 @@ environment:
     m: 4
   is_undirected: True
   value_type: auc
-  use_component: False
   device: cuda
 
 training:
   seed: 42
-  use_gcc: False
   num_episodes: 1000
   batch_size: 32
   max_steps: 10000
@@ -65,5 +58,6 @@ training:
 
 test:
   seed: 42
-  data_dir: .\data\small
+  data_dir: .\data\random
   use_gcc: True
+  attack_rate_per_step: 0.01

@@ -1,0 +1,63 @@
+# configs/DQN.yaml
+
+algorithm:
+  type: DQN
+  model_cfg:
+    type: Qnet
+    backbone_cfg:
+      type: GraphSAGE
+      in_channels: 1
+      hidden_channels: 64
+      num_layers: 4
+      fpa: True
+    q_head_cfg:
+      type: QHead
+      in_channels: 512
+  optimizer_cfg:
+    type: AdamW
+    lr: 0.0001
+    weight_decay: 0.0005
+  replaybuffer_cfg:
+    type: ReplayBuffer
+    capacity: 10000
+    n_step: 5
+  metric_manager_cfg:
+    metrics:
+      - type: AUC
+        record: min
+      - type: AttackRate
+        record: min
+  algo_cfg:
+    gamma: 0.99
+    epsilon_start: 1.0
+    epsilon_end: 0.01
+    epsilon_decay: 10000
+    tau: 0.005
+  device: cuda
+
+environment:
+  type: NetworkDismantlingEnv
+  node_features: betweenness
+  node_dim: 1
+  synth_type: ba
+  synth_args:
+    min_n: 30
+    max_n: 50
+    m: 4
+  is_undirected: True
+  value_type: auc
+  device: cuda
+
+training:
+  seed: 42
+  num_episodes: 1000
+  batch_size: 32
+  max_steps: 10000
+  log_interval: 10
+  save_interval: 100
+
+test:
+  seed: 42
+  data_dir: .\data\random
+  use_gcc: True
+  attack_rate_per_step: 0.01

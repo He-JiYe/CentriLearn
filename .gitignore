@@ -11,7 +11,7 @@ wheels/
 uv.lock
 
 # data files
-data
+data/
 
 # notebook files
 notebooks/
@@ -36,9 +36,7 @@ runs/
 results/
 
 # configs
-configs/network_dismantling/**
-!configs/network_dismantling/CentriLearn.yaml
-!configs/network_dismantling/FINDER.yaml
+configs/network_dismantling/备份
 
 # coverage
 test_coverage.py
@@ -49,8 +47,5 @@ htmlcov/
 .trae/
 .idea/
 
-# bat Scripts
-*.bat
-
 # Network Dismantling Programming
-nd_evaluate/
+thesis_plus/

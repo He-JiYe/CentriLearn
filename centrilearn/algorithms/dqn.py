@@ -16,7 +16,6 @@ from torch_scatter import scatter_max
 from tqdm import tqdm
 
 from centrilearn.algorithms.base import BaseAlgorithm
-from centrilearn.models.loss import reconstruction_loss
 from centrilearn.utils import ALGORITHMS, build_network_dismantler
 
 
@@ -51,7 +50,6 @@ class DQN(BaseAlgorithm):
         self.epsilon_decay = algo_cfg.get("epsilon_decay", 10000)
         self.tau = algo_cfg.get("tau", 0.005)
         self.grad_norm = algo_cfg.get("grad_norm", 1.0)
-        self.rcst_coef = algo_cfg.get("rcst_coef", 0.0001)
 
         super().__init__(
             model_cfg,
@@ -188,13 +186,8 @@ class DQN(BaseAlgorithm):
             target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
 
         loss = F.smooth_l1_loss(current_q_values, target_q_values)
-        rcst_loss = reconstruction_loss(
-            output["node_embed"],
-            output["edge_index"],
-            state_info.ptr,
-            device=self.device,
-        )
-        total_loss = loss + rcst_loss * self.rcst_coef
+
+        total_loss = loss 
 
         if weights is not None:
             weights_tensor = torch.as_tensor(
@@ -341,6 +334,9 @@ class DQN(BaseAlgorithm):
                     all_losses.append(episode_losses)
                     all_grads.append(episode_grads)
                     break
+
+            if self.scheduler:
+                self.scheduler.step()
 
             if tensorboard_writer:
                 tensorboard_writer.add_scalar("Train/reward", episode_reward, episode)

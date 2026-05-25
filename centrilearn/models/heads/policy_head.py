@@ -3,12 +3,9 @@ Policy head for policy/action probability.
 """
 
 from typing import Any, Dict
-
 import torch
 import torch.nn as nn
-
 from centrilearn.utils.registry import HEADS
-
 from .mlp_head import MLPHead
 
 
@@ -113,6 +110,5 @@ class LocalPolicyHead(nn.Module):
         assert info.get("batch") is not None, "batch is required"
 
         node_embed = info.get("node_embed")
-
         info["logit"] = self.mlp(node_embed)
         return info
