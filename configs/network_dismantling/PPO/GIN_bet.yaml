@@ -1,0 +1,67 @@
+# configs/PPO.yaml
+
+algorithm:
+  type: PPO
+  model_cfg:
+    type: ActorCritic
+    backbone_cfg:
+      type: GIN
+      in_channels: 1
+      hidden_channels: 64
+      num_layers: 4
+      fpa: True
+    actor_head_cfg:
+      type: PolicyHead
+      in_channels: 512
+    critic_head_cfg:
+      type: VHead
+      in_channels: 256
+    num_critics: 2
+  optimizer_cfg:
+    type: AdamW
+    lr: 0.0001
+    weight_decay: 0.0005
+  replaybuffer_cfg:
+    type: RolloutBuffer
+  metric_manager_cfg:
+    metrics:
+      - type: AUC
+        record: min
+      - type: AttackRate
+        record: min
+  algo_cfg:
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_epsilon: 0.2
+    value_coef: 1
+    max_grad_norm: 2
+    num_epochs: 1
+  device: cuda
+
+environment:
+  type: NetworkDismantlingEnv
+  synth_type: ba
+  synth_args:
+    min_n: 30
+    max_n: 50
+    m: 4
+  node_features: betweenness
+  node_dim: 1
+  is_undirected: True
+  value_type: auc
+  device: cuda
+
+training:
+  seed: 42
+  num_episodes: 2000
+  num_update: 2
+  max_steps: 10000
+  batch_size: 64
+  log_interval: 100
+  save_interval: 1000
+
+test:
+  seed: 42
+  data_dir: .\data\random
+  use_gcc: True
+  attack_rate_per_step: 0.01

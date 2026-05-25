@@ -10,11 +10,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Batch
-from torch_scatter import scatter_log_softmax, scatter_mean, scatter_softmax
+from torch_scatter import scatter_log_softmax
 from tqdm import tqdm
 
 from centrilearn.algorithms.base import BaseAlgorithm
-from centrilearn.models.loss import reconstruction_loss
 from centrilearn.utils import ALGORITHMS, build_network_dismantler
 
 
@@ -46,9 +45,7 @@ class PPO(BaseAlgorithm):
         self.gamma = algo_cfg.get("gamma", 0.99)
         self.gae_lambda = algo_cfg.get("gae_lambda", 0.95)
         self.clip_epsilon = algo_cfg.get("clip_epsilon", 0.2)
-        self.entropy_coef = algo_cfg.get("entropy_coef", 0.01)
         self.value_coef = algo_cfg.get("value_coef", 1)
-        self.rcst_coef = algo_cfg.get("rcst_coef", 0.0001)
         self.max_grad_norm = algo_cfg.get("max_grad_norm", 1)
         self.num_epochs = algo_cfg.get("num_epochs", 2)
 
@@ -146,8 +143,6 @@ class PPO(BaseAlgorithm):
 
         total_policy_loss = 0
         total_value_loss = 0
-        total_entropy_loss = 0
-        total_rcst_loss = 0
         total_grad = 0
         num_updates = 0
 
@@ -251,26 +246,11 @@ class PPO(BaseAlgorithm):
                     * advantage_b
                 )
                 policy_loss_epoch = -torch.min(surr1, surr2).mean()
-
                 value_loss_epoch = F.smooth_l1_loss(new_value, td_target_b)
-
-                probs = scatter_softmax(new_logit, batch_indices, dim=0)
-                entropy_loss_epoch = -scatter_mean(
-                    probs * log_prob, batch_indices
-                ).mean()
-
-                rcst_loss_epoch = reconstruction_loss(
-                    output["node_embed"],
-                    output["edge_index"],
-                    states_b.ptr,
-                    device=self.device,
-                )
 
                 policy_loss = policy_loss_epoch
                 value_loss = self.value_coef * value_loss_epoch
-                entropy_loss = -self.entropy_coef * entropy_loss_epoch
-                rcst_loss = self.rcst_coef * rcst_loss_epoch
-                total_loss = policy_loss + value_loss * 10 + entropy_loss + rcst_loss
+                total_loss = policy_loss + value_loss * 10 
 
                 self.optimizer.zero_grad()
                 total_loss.backward()
@@ -283,8 +263,6 @@ class PPO(BaseAlgorithm):
 
                 total_policy_loss += policy_loss.item()
                 total_value_loss += value_loss.item()
-                total_entropy_loss += entropy_loss.item()
-                total_rcst_loss += rcst_loss.item()
                 total_grad += grad.item()
                 num_updates += 1
 
@@ -294,10 +272,6 @@ class PPO(BaseAlgorithm):
         return {
             "policy_loss": total_policy_loss / num_updates if num_updates > 0 else 0.0,
             "value_loss": total_value_loss / num_updates if num_updates > 0 else 0.0,
-            "entropy_loss": (
-                total_entropy_loss / num_updates if num_updates > 0 else 0.0
-            ),
-            "rcst_loss": total_rcst_loss / num_updates if num_updates > 0 else 0.0,
             "grad": total_grad / num_updates if num_updates > 0 else 0.0,
         }
 
@@ -338,8 +312,6 @@ class PPO(BaseAlgorithm):
         all_rewards = []
         all_policy_losses = []
         all_value_losses = []
-        all_entropy_losses = []
-        all_rcst_losses = []
         all_grads = []
 
         self.metric_manager.start_timer()
@@ -368,13 +340,14 @@ class PPO(BaseAlgorithm):
                 if done or step >= max_steps:
                     all_rewards.append(episode_reward)
                     break
+                
+            if self.scheduler:
+                self.scheduler.step()
 
             if episode % num_update == 0:
                 metrics = self.update(batch_size)
                 all_policy_losses.append(metrics.get("policy_loss", 0.0))
                 all_value_losses.append(metrics.get("value_loss", 0.0))
-                all_entropy_losses.append(metrics.get("entropy_loss", 0.0))
-                all_rcst_losses.append(metrics.get("rcst_loss", 0.0))
                 all_grads.append(metrics.get("grad", 0.0))
 
                 if tensorboard_writer:
@@ -386,12 +359,6 @@ class PPO(BaseAlgorithm):
                     )
                     tensorboard_writer.add_scalar(
                         "Train/value_loss", all_value_losses[-1], episode
-                    )
-                    tensorboard_writer.add_scalar(
-                        "Train/entropy_loss", all_entropy_losses[-1], episode
-                    )
-                    tensorboard_writer.add_scalar(
-                        "Train/rcst_loss", all_rcst_losses[-1], episode
                     )
                     tensorboard_writer.add_scalar("Train/grad", all_grads[-1], episode)
 
@@ -420,12 +387,6 @@ class PPO(BaseAlgorithm):
                 avg_value_loss = sum(all_value_losses[-log_interval:]) / min(
                     log_interval, len(all_value_losses)
                 )
-                avg_entropy_loss = sum(all_entropy_losses[-log_interval:]) / min(
-                    log_interval, len(all_entropy_losses)
-                )
-                avg_rcst_loss = sum(all_rcst_losses[-log_interval:]) / min(
-                    log_interval, len(all_rcst_losses)
-                )
                 avg_grad = sum(all_grads[-log_interval:]) / min(
                     log_interval, len(all_grads)
                 )
@@ -434,8 +395,6 @@ class PPO(BaseAlgorithm):
                     f"Episode {episode}, Avg Reward: {avg_reward:.2f}, "
                     f"Policy Loss: {avg_policy_loss:.4f}, "
                     f"Value Loss: {avg_value_loss:.4f}, "
-                    f"Entropy Loss: {avg_entropy_loss:.4f}, "
-                    f"Rcst Loss: {avg_rcst_loss:.4f}, "
                     f"Grad: {avg_grad:.4f}"
                 )
 

@@ -3,12 +3,9 @@ The implementation of GAT with graph embedding based on PyG's GATConv.
 """
 
 from typing import Any, Dict, Tuple, Union
-
 from torch_geometric.nn import GATConv, GATv2Conv
-
 from centrilearn.models.backbones.BasicGNN import BasicGNN
 from centrilearn.utils.registry import BACKBONES
-
 
 @BACKBONES.register_module()
 class GAT(BasicGNN):
@@ -24,6 +21,7 @@ class GAT(BasicGNN):
         out_channels: Output feature dimension (default: hidden_channels)
         graph_aggr: Graph pooling method ('add', 'mean', 'max')
         dropout: Dropout probability
+        fpa: Whether to use FPA (default: False)
     """
 
     supports_edge_weight: bool = False

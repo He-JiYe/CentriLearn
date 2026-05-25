@@ -4,13 +4,12 @@ Implements network dismantling task based on node removal
 """
 
 from typing import Any, Dict, List, Optional, Tuple
-
+import numpy as np
 import networkx as nx
 import scipy.sparse as sp
 import torch
 from torch_geometric.data import Data
 from torch_geometric.utils import degree, subgraph, to_scipy_sparse_matrix
-
 from centrilearn.environments.base import BaseEnv
 from centrilearn.utils.registry import ENVIRONMENTS
 
@@ -97,8 +96,11 @@ class NetworkDismantlingEnv(BaseEnv):
             reward = -1 / self.num_nodes
         elif self.value_type == "at":
             reward = -1
+        elif self.value_type == "fiedler":  # fiedler
+            reward = self._compute_fiedler(action)
 
-        done = self.is_empty() or self.lcc() <= 2
+
+        done = self.is_empty() or self.lcc() <= 2 or self.lcc() / self.num_nodes <= 0.01
         info = {
             "lcc_size": self.lcc_size[-1],
             "num_nodes": self.num_nodes,
@@ -124,9 +126,16 @@ class NetworkDismantlingEnv(BaseEnv):
 
         # Construct node features
         num_nodes = mapping.shape[0]
-        if self.node_features == "degree":
+        if self.node_features == "ones":
+            x = torch.ones(num_nodes, self.node_dim, device=self.device) 
+        elif self.node_features == "degree":
             deg = degree(edge_index[0], num_nodes) / num_nodes
             x = deg.unsqueeze(-1).expand(num_nodes, self.node_dim)
+        elif self.node_features == "betweenness":
+            G = nx.from_edgelist(edge_index.t().cpu().numpy())
+            bet = nx.betweenness_centrality(G, normalized=True)
+            bet = torch.tensor([bet.get(i, 0.0) for i in range(num_nodes)], dtype=torch.float, device=self.device) 
+            x = bet.unsqueeze(-1).expand(num_nodes, self.node_dim)
         else:
             raise ValueError(f"Unknown node_features: {self.node_features}")
 
@@ -155,7 +164,7 @@ class NetworkDismantlingEnv(BaseEnv):
     def connected_components(self, edge_index, num_nodes) -> List[int]:
         """Get connected component labels for each node in the remaining graph based on scipy algorithm."""
         adj = to_scipy_sparse_matrix(edge_index, num_nodes=num_nodes)
-        _, component = sp.csgraph.connected_components(adj, connection="weak")
+        _, component = sp.csgraph.connected_components(adj, directed=False)
         return torch.as_tensor(component, dtype=torch.long, device=edge_index.device)
 
     def lcc(self) -> int:
@@ -192,10 +201,34 @@ class NetworkDismantlingEnv(BaseEnv):
         self.remove_nodes.append(int(node))
         self.lcc_size.append(self.lcc() / self.num_nodes)
 
+    def _compute_fiedler(self, action):
+        """Compute the fiedler value of the remaining LCC."""
+        mapping = self.node_mask.nonzero(as_tuple=False).view(-1)
+        num_nodes = mapping.shape[0]
+        edge_index, _ = subgraph(
+            mapping, self.edge_index, relabel_nodes=True, num_nodes=self.num_nodes
+        )
+        adj = to_scipy_sparse_matrix(edge_index, num_nodes=num_nodes)   # remaining graph
+        _, components = sp.csgraph.connected_components(adj, directed=False)
+        lcc_label = np.bincount(components).argmax()
+        lcc_nodes = np.where(components == lcc_label)[0]
+        lcc_adj = adj.tocsr()[lcc_nodes][:, lcc_nodes]
+        
+        if lcc_adj.shape[0] <= 2:
+            return 0.0
+
+        try:
+            vals = sp.linalg.eigsh(lcc_adj, k=2, which='SA', return_eigenvectors=False)
+            fiedler = vals[1]
+        except Exception:
+            fiedler = 0.0
+
+        return fiedler * lcc_nodes.shape[0] / self.num_nodes
+
     def __repr__(self):
         """Print network dismantling environment information."""
         message = (
             super().__repr__()[:-1]
-            + f"node_features: {self.node_features}, node_dim: {self.node_dim}, value_type: {self.value_type})"
+            + f", node_features: {self.node_features}, node_dim: {self.node_dim}, value_type: {self.value_type})"
         )
         return message
